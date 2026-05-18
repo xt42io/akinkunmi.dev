@@ -176,7 +176,7 @@ export default function NowPlaying({ apiUrl = defaultApiUrl }: NowPlayingProps) 
             >
               {track.image ? (
                 <div
-                  className="absolute inset-0 bg-cover bg-center opacity-[0.08] saturate-125"
+                  className="absolute inset-[-24px] bg-cover bg-center opacity-[0.08] blur-2xl saturate-125"
                   style={{ backgroundImage: `url(${track.image})` }}
                   aria-hidden="true"
                 />
