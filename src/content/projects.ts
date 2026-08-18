@@ -10,12 +10,6 @@ interface Props {
 
 export const projects: Props[] = [
   {
-    name: "NotDatabase",
-    description: "The easiest schema-based type-safe document database.",
-    website: "https://www.notdatabase.com",
-    github: "https://github.com/akinloluwami/notdatabase",
-  },
-  {
     name: "Destino",
     description: "File-based routing framework based on Express.js.",
     website: "https://destino.run",
