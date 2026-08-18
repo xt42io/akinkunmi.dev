@@ -50,19 +50,9 @@ const Projects = () => {
       url: "https://github.com/akinloluwami/pathwatch",
     },
     {
-      title: "NotDatabase",
-      description: "Type-safe document database for TypeScript.",
-      url: "https://www.notdatabase.com",
-    },
-    {
       title: "ReactServe",
       description: "The missing backend framework for React.",
       url: "https://react-serve.run",
-    },
-    {
-      title: "Plaything",
-      description: "The best tic-tac-toe game in the world.",
-      url: "https://plaything.pro",
     },
   ];
 
