@@ -1,4 +1,3 @@
-import { ConvexClientProvider } from "./ConvexProvider";
 import Reactions from "./Reactions";
 
 interface ReactionsWrapperProps {
@@ -6,9 +5,5 @@ interface ReactionsWrapperProps {
 }
 
 export default function ReactionsWrapper({ slug }: ReactionsWrapperProps) {
-  return (
-    <ConvexClientProvider>
-      <Reactions slug={slug} />
-    </ConvexClientProvider>
-  );
+  return <Reactions slug={slug} />;
 }

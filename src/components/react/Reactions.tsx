@@ -1,5 +1,4 @@
-import { useQuery, useMutation } from "convex/react";
-import { api } from "../../../convex/_generated/api";
+import { useCallback, useEffect, useState } from "react";
 
 interface ReactionsProps {
   slug: string;
@@ -8,8 +7,24 @@ interface ReactionsProps {
 const emojis = ["👍", "❤️", "🔥", "🚀", "👀"];
 
 const Reactions = ({ slug }: ReactionsProps) => {
-  const reactionsData = useQuery(api.reactions.get, { slug }) || [];
-  const addReaction = useMutation(api.reactions.add);
+  const [reactionsData, setReactionsData] = useState<
+    Array<{ emoji: string; count: number }>
+  >([]);
+
+  const loadReactions = useCallback(async () => {
+    const params = new URLSearchParams({ slug });
+    const response = await fetch(`/api/reactions?${params}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error("Could not load reactions");
+    }
+    setReactionsData(await response.json());
+  }, [slug]);
+
+  useEffect(() => {
+    loadReactions().catch(() => setReactionsData([]));
+  }, [loadReactions]);
 
   const getCount = (emoji: string) => {
     const found = reactionsData.find((r) => r.emoji === emoji);
@@ -17,7 +32,15 @@ const Reactions = ({ slug }: ReactionsProps) => {
   };
 
   const handleReaction = async (emoji: string) => {
-    await addReaction({ slug, emoji });
+    const response = await fetch("/api/reactions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, emoji }),
+    });
+
+    if (response.ok) {
+      await loadReactions();
+    }
   };
 
   return (

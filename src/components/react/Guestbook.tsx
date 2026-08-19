@@ -1,6 +1,4 @@
-import { useState, useEffect } from "react";
-import { useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api";
+import { useCallback, useEffect, useState } from "react";
 import { SignaturePad } from "./signature-pad";
 import { signIn, signOut } from "auth-astro/client";
 import { LogIn, Pen } from "lucide-react";
@@ -14,6 +12,18 @@ interface Session {
   };
 }
 
+interface GuestbookEntry {
+  _id: string;
+  _creationTime: number;
+  message: string;
+  authorName: string;
+  githubUsername?: string;
+  githubId?: string;
+  authorImage?: string;
+  signature: string;
+  createdAt: number;
+}
+
 function formatDate(timestamp: number): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -25,7 +35,7 @@ function formatDate(timestamp: number): string {
 }
 
 export default function Guestbook() {
-  const entries = useQuery(api.guestbook.list);
+  const [entries, setEntries] = useState<GuestbookEntry[] | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -34,12 +44,24 @@ export default function Guestbook() {
   const [signature, setSignature] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const loadEntries = useCallback(async () => {
+    const response = await fetch("/api/guestbook", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Could not load the guestbook");
+    }
+    setEntries(await response.json());
+  }, []);
+
   const hasSigned =
     session?.user?.id && entries
       ? entries.some(
           (entry) => "githubId" in entry && entry.githubId === session.user!.id,
         )
       : false;
+
+  useEffect(() => {
+    loadEntries().catch(() => setEntries([]));
+  }, [loadEntries]);
 
   useEffect(() => {
     fetch("/api/auth/session")
@@ -66,6 +88,7 @@ export default function Guestbook() {
       });
 
       if (res.ok) {
+        await loadEntries();
         setShowModal(false);
         setMessage("");
         setSignature(null);
@@ -135,7 +158,7 @@ export default function Guestbook() {
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {entries === undefined ? (
+        {entries === null ? (
           <p className="col-span-full text-sm text-muted">Loading…</p>
         ) : entries.length === 0 ? (
           <p className="col-span-full text-sm text-muted leading-relaxed max-w-md">
