@@ -127,6 +127,17 @@ test("unapproved origins cannot read or write through CORS", async () => {
   assert.equal(await getCurrentTrack(), null);
 });
 
+test("configured extension origins can post with a token but still require authentication", async () => {
+  const origin = "chrome-extension://test-extension";
+  env.CORS_ORIGINS += `,${origin}`;
+  assert.equal((await OPTIONS(context("OPTIONS", { origin }))).status, 204);
+  assert.equal((await POST(context("POST", { body: track, origin }))).status, 401);
+  const response = await POST(authenticated(track, { origin }));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), origin);
+  assert.equal((await POST(authenticated(track, { origin: "chrome-extension://other-extension" }))).status, 403);
+});
+
 test("D1 expires tracks ten minutes after POST, even across separate requests", async () => {
   await saveCurrentTrack(db, track, 0);
   assert.deepEqual(await readTrack(db, 599_999), track);
