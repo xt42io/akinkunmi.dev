@@ -9,6 +9,8 @@
     "preview": "astro preview",
     "astro": "astro",
     "api": "nodemon api/backend.js",
+    "test:now-playing": "node --test tests/now-playing.test.mjs",
+    "money:build": "node scripts/build-money-db.mjs",
     "db:migrate": "node scripts/migrate-convex-to-postgres.mjs"
   },
   "dependencies": {
@@ -20,6 +22,7 @@
     "astro": "^5.13.3",
     "auth-astro": "^4.2.0",
     "dotenv": "^17.2.3",
+    "ioredis": "^5.11.1",
     "lucide-react": "^0.541.0",
     "motion": "^12.38.0",
     "perfect-freehand": "^1.2.3",
@@ -28,6 +31,7 @@
     "typescript": "^5.5.4"
   },
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "read-excel-file": "^9.3.4"
   }
 }
