@@ -4,7 +4,13 @@ export type GameSnapshot = {
   phase: Phase; score: number; lives: number; remaining: number; total: number;
   balls: number; combo: number; wideFor: number; slowFor: number; fireBalls: number; serveFor: number;
 };
-type Options = { onState: (state: GameSnapshot) => void; onAnnounce: (message: string) => void; onBounds: (bounds: {left: number; width: number}) => void };
+type Options = {
+  onState: (state: GameSnapshot) => void;
+  onAnnounce: (message: string) => void;
+  onBounds: (bounds: {left: number; width: number}) => void;
+  onGameEvents?: (events: GameEvent[], state: GameSnapshot) => void;
+  onReset?: (reason: "restart" | "resize") => void;
+};
 type Piece = { element: HTMLElement | SVGElement; visibility: string; priority: string; color: string };
 type Particle = { x: number; y: number; vx: number; vy: number; life: number; size: number; color: string };
 type Blast = { x: number; y: number; radius: number; life: number };
@@ -219,6 +225,7 @@ export class BrickBreakerScene {
   }
 
   restart() {
+    this.options.onReset?.("restart");
     this.stop();
     this.board.restore();
     this.physics.restart();
@@ -250,6 +257,7 @@ export class BrickBreakerScene {
     const height = this.canvas.clientHeight;
     if (!width || !height || (width === this.width && height === this.height)) return;
     const hadBoard = Boolean(this.board);
+    if (hadBoard) this.options.onReset?.("resize");
     this.stop();
     this.board?.destroy();
     this.width = width;
@@ -272,13 +280,17 @@ export class BrickBreakerScene {
     if (hadBoard) this.options.onAnnounce("The viewport changed. A fresh page is ready to play.");
   }
 
-  private notify() {
+  private snapshot(): GameSnapshot {
     const p = this.physics;
-    const state: GameSnapshot = {
+    return {
       phase: p.phase, score: p.score, lives: p.lives, remaining: p.remaining, total: p.bricks.length,
       balls: p.balls.length, combo: p.combo, wideFor: Math.ceil(p.wideFor), slowFor: Math.ceil(p.slowFor),
       fireBalls: p.balls.filter(ball => ball.fire).length, serveFor: Math.ceil(p.serveFor),
     };
+  }
+
+  private notify() {
+    const state = this.snapshot();
     const snapshot = JSON.stringify(state);
     if (snapshot !== this.lastSnapshot) { this.lastSnapshot = snapshot; this.options.onState(state); }
   }
@@ -289,7 +301,8 @@ export class BrickBreakerScene {
     this.frame = 0;
     const dt = this.previous ? Math.min((now - this.previous) / 1000, 0.05) : 0;
     this.previous = now;
-    for (const event of this.physics.update(dt)) {
+    const events = this.physics.update(dt);
+    for (const event of events) {
       if (event.kind === "brick" && event.id !== undefined) {
         this.board.break(event.id);
         this.burst(event.x, event.y, this.board.pieces.get(event.id)?.color ?? "#555");
@@ -307,6 +320,7 @@ export class BrickBreakerScene {
       if (event.kind === "win") this.options.onAnnounce("Every piece cleared. You broke the internet!");
       this.audio.event(event);
     }
+    if (events.length) this.options.onGameEvents?.(events, this.snapshot());
     for (const particle of this.particles) {
       particle.life -= dt;
       particle.vy += 280 * dt;
