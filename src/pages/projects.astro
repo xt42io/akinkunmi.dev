@@ -2,11 +2,11 @@
 import Layout from '../layouts/Layout.astro';
 import ProjectList from '../components/react/projects';
 import Footer from '../components/react/footer';
-
+import { projects } from '../content/projects';
 ---
 
 
 <Layout title='Projects • Akinkunmi'>
-    <ProjectList />
+    <ProjectList items={projects} headingLevel="h1" />
     <Footer />
 </Layout>
