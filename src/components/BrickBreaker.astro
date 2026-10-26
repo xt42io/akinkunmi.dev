@@ -44,6 +44,7 @@
 
 <script>
   import type { BrickBreakerScene, GameSnapshot } from "../lib/brick-breaker";
+  import { BrickBreakerAnalytics, type GameplayCapture } from "../lib/brick-breaker-analytics";
 
   class PageBreaker extends HTMLElement {
     private dialog!: HTMLDialogElement;
@@ -60,6 +61,8 @@
     private best = 0;
     private phase = "";
     private toastTimer?: number;
+    private analytics?: BrickBreakerAnalytics;
+    private closeMethod: "button" | "escape" | "navigation" = "button";
 
     connectedCallback() {
       this.abort?.abort();
@@ -73,6 +76,8 @@
       document.addEventListener("pointerdown", this.onSecretDown, { signal });
       document.addEventListener("pointerup", this.onSecretUp, { signal });
       window.addEventListener("blur", this.clearKeys, { signal });
+      window.addEventListener("pagehide", () => this.analytics?.close("navigation"), { signal });
+      this.dialog.addEventListener("cancel", () => { this.closeMethod = "escape"; }, { signal });
       this.dialog.addEventListener("close", this.cleanup, { signal });
       this.querySelector("[data-breaker-close]")!.addEventListener("click", () => this.dialog.close(), { signal });
       this.querySelector("[data-breaker-play]")!.addEventListener("click", () => this.scene?.start(), { signal });
@@ -82,6 +87,7 @@
     }
 
     disconnectedCallback() {
+      this.closeMethod = "navigation";
       this.abort?.abort();
       if (this.dialog?.open) this.dialog.close();
       this.cleanup();
@@ -111,7 +117,7 @@
       const now = performance.now();
       this.sequence = event.key === "2" ? (now - this.lastKeyAt < 1200 ? this.sequence : "") + "2" : "";
       this.lastKeyAt = now;
-      if (this.sequence === "22") { this.sequence = ""; void this.openGame(); }
+      if (this.sequence === "22") { this.sequence = ""; void this.openGame("keyboard"); }
     };
 
     private onKeyUp = (event: KeyboardEvent) => { this.keys.delete(event.key); this.updateDirection(); };
@@ -130,12 +136,17 @@
       const now = performance.now();
       if (this.lastTap && now - this.lastTap.time < 450 && Math.hypot(event.clientX - this.lastTap.x, event.clientY - this.lastTap.y) < 35) {
         this.lastTap = undefined;
-        if (!document.querySelector("dialog[open]")) void this.openGame();
+        if (!document.querySelector("dialog[open]")) void this.openGame("double_tap");
       } else this.lastTap = { x: event.clientX, y: event.clientY, time: now };
     };
 
-    private async openGame() {
+    private async openGame(trigger: "keyboard" | "double_tap") {
       if (this.dialog.open) return;
+      this.closeMethod = "button";
+      this.analytics = new BrickBreakerAnalytics((event, properties, options) => {
+        (window as Window & { posthog?: { capture?: GameplayCapture } }).posthog?.capture?.(event, properties, options);
+      }, { game_session_id: crypto.randomUUID(), pathname: window.location.pathname });
+      this.analytics.opened(trigger);
       const session = ++this.session;
       this.overflow = document.body.style.overflow;
       this.dialog.showModal();
@@ -151,6 +162,8 @@
         if (!this.dialog.open || !this.isConnected || session !== this.session) return;
         this.scene = new BrickBreakerScene(this.querySelector("canvas")!, {
           onState: this.renderState, onAnnounce: this.announce,
+          onGameEvents: (events, state) => this.analytics?.events(events, state),
+          onReset: reason => this.analytics?.reset(reason),
           onBounds: ({ left, width }) => {
             this.dialog.style.setProperty("--breaker-left", `${left}px`);
             this.dialog.style.setProperty("--breaker-width", `${width}px`);
@@ -158,6 +171,7 @@
         });
         this.renderSound();
       } catch {
+        this.analytics?.failed();
         this.text("#breaker-title", "A small intermission.");
         this.text("#breaker-description", "The game couldn't load. Close it and try again.");
       }
@@ -165,6 +179,8 @@
 
     private cleanup = () => {
       ++this.session;
+      this.analytics?.close(this.closeMethod);
+      this.analytics = undefined;
       this.scene?.destroy();
       this.scene = undefined;
       this.clearKeys();
@@ -173,7 +189,12 @@
       if (this.locked) { document.body.style.overflow = this.overflow; this.locked = false; }
     };
 
-    private toggleSound = () => { this.scene?.toggleSound(); this.renderSound(); };
+    private toggleSound = () => {
+      if (!this.scene) return;
+      this.scene.toggleSound();
+      this.analytics?.sound(!this.scene.muted);
+      this.renderSound();
+    };
     private renderSound() {
       const muted = this.scene?.muted ?? false;
       const button = this.querySelector("[data-breaker-sound]")!;
@@ -192,6 +213,7 @@
     };
 
     private renderState = (state: GameSnapshot) => {
+      this.analytics?.state(state);
       this.text("[data-breaker-score]", String(state.score).padStart(4, "0"));
       if (state.score > this.best) {
         this.best = state.score;
