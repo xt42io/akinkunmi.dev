@@ -19,7 +19,7 @@ const { Content } = await post.render();
 
 <Layout title={`${post.data.title} - Akinkunmi`}>
   <article>
-    <a href="/blog" class="text-2xs uppercase tracking-[0.14em] text-muted-faint mb-10 inline-block hover:text-accent transition-colors">&larr; Blog</a>
+    <a href="/blog" class="text-2xs uppercase tracking-[0.14em] text-muted-faint mb-10 inline-block hover:text-hover transition-colors">&larr; Blog</a>
     
     <h1 class="font-serif text-[clamp(1.75rem,5vw,2.35rem)] font-medium text-off-white leading-snug tracking-tight mb-3">{post.data.title}</h1>
     <time class="text-2xs uppercase tracking-[0.12em] text-muted-faint block mb-10 pb-8 border-b border-hairline">
@@ -51,7 +51,7 @@ const { Content } = await post.render();
     @apply text-muted list-decimal list-inside mb-4 space-y-1;
   }
   .prose a {
-    @apply text-ink underline underline-offset-[5px] decoration-hairline hover:text-accent hover:decoration-accent/50 transition-colors;
+    @apply text-ink underline underline-offset-[5px] decoration-hairline hover:text-hover hover:decoration-hover/50 transition-colors;
   }
   .prose code {
     @apply bg-surface px-1.5 py-0.5 rounded text-sm text-ink;
