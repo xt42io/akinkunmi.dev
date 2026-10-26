@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Now Playing for YouTube Music",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Posts the current YouTube Music track to a personal Now Playing endpoint.",
   "background": {
     "service_worker": "background.js"
