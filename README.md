@@ -63,6 +63,14 @@ npm run db:import-postgres -- --local # local D1
 Postgres and Redis are not used by the website runtime. Keep the old database
 and migration backups until the Cloudflare deployment has been confirmed.
 
+## Local guestbook samples
+
+Run `npm run db:seed:guestbook` to add eight fictional notes and handwritten
+signatures to local D1. The command always uses `--local`, rejects extra flags,
+and updates its own sample IDs on subsequent runs. Existing entries are preserved.
+The website labels these sample entries during development; production data is
+unaffected.
+
 ## Hidden night drive
 
 Type `22` within 1.2 seconds outside a text field, or double-tap **going for a
