@@ -1,0 +1,384 @@
+<night-drive>
+  <dialog class="drive" aria-labelledby="drive-title" aria-describedby="drive-instructions">
+    <canvas data-drive-canvas aria-hidden="true"></canvas>
+    <div class="drive-top">
+      <div class="drive-brand" aria-label="Night drive, trip 22">
+        <span class="drive-badge">22</span>
+        <span>NIGHT DRIVE <span class="drive-brand-dot">/</span> NO DESTINATION</span>
+      </div>
+      <button data-drive-close class="drive-close" type="button" autofocus aria-label="Leave night drive">
+        <span class="drive-escape">ESC</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
+      </button>
+    </div>
+
+    <div class="drive-caption">
+      <p class="drive-eyebrow">A LITTLE DETOUR</p>
+      <h2 id="drive-title">Take the long way home.</h2>
+      <p id="drive-instructions">
+        <span class="drive-keyboard-hint">← → to steer <span>·</span> move your cursor <span>·</span> Esc to leave</span>
+        <span class="drive-touch-hint">Drag the road or hold the arrows to steer.</span>
+      </p>
+    </div>
+
+    <div class="drive-hud">
+      <div class="drive-trip">
+        <p class="drive-distance"><span data-drive-distance>000.0</span> <span>km</span></p>
+        <button data-drive-pause class="drive-pause" type="button" aria-pressed="false">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3h2v10H4zm6 0h2v10h-2z" /></svg>
+          <span data-drive-pause-label>Pause scenery</span>
+        </button>
+      </div>
+
+      <div class="drive-radio" aria-live="polite" aria-atomic="true">
+        <div class="drive-radio-art">
+          <img data-drive-art hidden alt="" width="44" height="44" />
+          <svg data-drive-radio-icon width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M9 18V5l12-2v13M9 7l12-2" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+        </div>
+        <div class="drive-radio-copy">
+          <p class="drive-radio-label"><span data-drive-radio-status>THE QUIET HOURS</span><span data-drive-radio-wave hidden aria-hidden="true"><i></i><i></i><i></i><i></i></span></p>
+          <p data-drive-radio-title class="drive-radio-title">Just you and the road.</p>
+          <p data-drive-radio-artist class="drive-radio-artist">A little room to breathe.</p>
+        </div>
+        <a data-drive-radio-link hidden target="_blank" rel="noreferrer" class="drive-radio-link" aria-label="Open this song in YouTube Music" title="Open in YouTube Music">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10" /></svg>
+        </a>
+      </div>
+
+      <div class="drive-steering" aria-label="Steering controls">
+        <button data-drive-left type="button" aria-label="Steer left">←</button>
+        <button data-drive-right type="button" aria-label="Steer right">→</button>
+        <span>TAKE YOUR TIME</span>
+      </div>
+    </div>
+  </dialog>
+</night-drive>
+
+<script>
+  import { fetchNowPlaying, musicLinks, parseTrack, POLL_INTERVAL_MS, REQUEST_TIMEOUT_MS, type Track } from "../lib/now-playing";
+  import type { NightDriveScene } from "../lib/night-drive";
+
+  class NightDrive extends HTMLElement {
+    private dialog!: HTMLDialogElement;
+    private canvas!: HTMLCanvasElement;
+    private scene?: NightDriveScene;
+    private sequence = "";
+    private lastKeyAt = 0;
+    private tapStart?: { x: number; y: number };
+    private lastTap?: { x: number; y: number; time: number };
+    private session = 0;
+    private paused = false;
+    private pressed = new Set<string>();
+    private scrollOverflow = "";
+    private scrollLocked = false;
+    private themeColor: string | null = null;
+    private radioInterval?: number;
+    private radioRequest?: AbortController;
+    private track: Track | null = null;
+    private motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    connectedCallback() {
+      this.dialog = this.querySelector("dialog")!;
+      this.canvas = this.querySelector("canvas")!;
+      document.addEventListener("keydown", this.onKeyDown);
+      document.addEventListener("keyup", this.onKeyUp);
+      document.addEventListener("pointerdown", this.onSecretPointerDown);
+      document.addEventListener("pointerup", this.onSecretPointerUp);
+      window.addEventListener("blur", this.clearSteering);
+      this.dialog.addEventListener("close", this.onClose);
+      this.motion.addEventListener("change", this.onMotionChange);
+      this.querySelector<HTMLButtonElement>("[data-drive-close]")!.addEventListener("click", () => this.dialog.close());
+      this.querySelector<HTMLButtonElement>("[data-drive-pause]")!.addEventListener("click", () => this.setPaused(!this.paused));
+      this.canvas.addEventListener("pointermove", this.onPointerMove);
+      this.canvas.addEventListener("pointerdown", event => {
+        this.canvas.setPointerCapture(event.pointerId);
+        this.onPointerMove(event);
+      });
+      for (const [selector, key] of [["[data-drive-left]", "left"], ["[data-drive-right]", "right"]]) {
+        const button = this.querySelector<HTMLButtonElement>(selector)!;
+        button.addEventListener("pointerdown", event => {
+          event.preventDefault();
+          button.setPointerCapture(event.pointerId);
+          this.pressed.add(key);
+          this.updateDirection();
+        });
+        for (const event of ["pointerup", "pointercancel", "lostpointercapture"]) {
+          button.addEventListener(event, () => {
+            this.pressed.delete(key);
+            this.updateDirection();
+          });
+        }
+        // Keyboard and assistive-technology activation can steer without holding.
+        button.addEventListener("click", event => {
+          if (event.detail === 0) {
+            this.scene?.nudge(key === "left" ? -1 : 1);
+          }
+        });
+      }
+    }
+
+    disconnectedCallback() {
+      if (this.dialog.open) this.dialog.close();
+      this.onClose();
+      document.removeEventListener("keydown", this.onKeyDown);
+      document.removeEventListener("keyup", this.onKeyUp);
+      document.removeEventListener("pointerdown", this.onSecretPointerDown);
+      document.removeEventListener("pointerup", this.onSecretPointerUp);
+      window.removeEventListener("blur", this.clearSteering);
+      this.motion.removeEventListener("change", this.onMotionChange);
+    }
+
+    private onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
+        this.sequence = "";
+        return;
+      }
+      const editing = event.composedPath().some(target => target instanceof HTMLElement && (
+        target.isContentEditable || target.matches("input, textarea, select, [role='textbox']")
+      ));
+      if (editing) { this.sequence = ""; return; }
+      if (this.dialog.open) {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          this.pressed.add(event.key);
+          this.updateDirection();
+        }
+        return;
+      }
+      if (event.repeat || document.querySelector("dialog[open]")) { this.sequence = ""; return; }
+      const now = performance.now();
+      this.sequence = event.key === "2" ? (now - this.lastKeyAt < 1200 ? this.sequence : "") + "2" : "";
+      this.lastKeyAt = now;
+      if (this.sequence === "22") {
+        this.sequence = "";
+        void this.openDrive();
+      }
+    };
+
+    private onKeyUp = (event: KeyboardEvent) => {
+      this.pressed.delete(event.key);
+      this.updateDirection();
+    };
+
+    private onSecretPointerDown = (event: PointerEvent) => {
+      this.tapStart = event.button === 0 && event.target instanceof Element
+        && event.target.closest("[data-night-drive-trigger]") ? { x: event.clientX, y: event.clientY } : undefined;
+    };
+
+    private onSecretPointerUp = (event: PointerEvent) => {
+      const start = this.tapStart;
+      this.tapStart = undefined;
+      if (!start || Math.hypot(start.x - event.clientX, start.y - event.clientY) > 10
+        || !(event.target instanceof Element) || !event.target.closest("[data-night-drive-trigger]")) return;
+      const time = performance.now();
+      if (this.lastTap && time - this.lastTap.time < 450
+        && Math.hypot(event.clientX - this.lastTap.x, event.clientY - this.lastTap.y) < 35) {
+        this.lastTap = undefined;
+        if (!document.querySelector("dialog[open]")) void this.openDrive();
+      } else this.lastTap = { x: event.clientX, y: event.clientY, time };
+    };
+
+    private clearSteering = () => {
+      this.pressed.clear();
+      this.updateDirection();
+      this.sequence = "";
+      this.lastTap = undefined;
+    };
+
+    private updateDirection() {
+      const left = this.pressed.has("ArrowLeft") || this.pressed.has("left");
+      const right = this.pressed.has("ArrowRight") || this.pressed.has("right");
+      this.scene?.setDirection(Number(right) - Number(left));
+    }
+
+    private onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType === "touch" && !this.canvas.hasPointerCapture(event.pointerId)) return;
+      this.scene?.pointTo((event.clientX / this.canvas.clientWidth - 0.5) * 2);
+    };
+
+    private onMotionChange = () => {
+      if (this.motion.matches && this.dialog.open) this.setPaused(true);
+    };
+
+    private setPaused(paused: boolean) {
+      this.paused = paused;
+      this.scene?.setPaused(paused);
+      this.querySelector("[data-drive-pause]")!.setAttribute("aria-pressed", String(paused));
+      this.querySelector("[data-drive-pause-label]")!.textContent = paused ? "Resume scenery" : "Pause scenery";
+      this.dialog.classList.toggle("drive--paused", paused);
+    }
+
+    private async openDrive() {
+      const session = ++this.session;
+      this.scrollOverflow = document.body.style.overflow;
+      this.dialog.showModal();
+      document.body.style.overflow = "hidden";
+      this.scrollLocked = true;
+      const theme = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+      this.themeColor = theme?.getAttribute("content") ?? null;
+      theme?.setAttribute("content", "#080f1b");
+      this.setPaused(this.motion.matches);
+      const widget = document.querySelector<HTMLElement>("now-playing[data-track]");
+      try { this.renderRadio(parseTrack(JSON.parse(widget?.dataset.track ?? "null"))); }
+      catch { this.renderRadio(null); }
+      document.addEventListener("now-playing:update", this.onRadioUpdate);
+      if (!widget) {
+        void this.refreshRadio();
+        this.radioInterval = window.setInterval(() => this.refreshRadio(), POLL_INTERVAL_MS);
+      }
+      try {
+        const { NightDriveScene } = await import("../lib/night-drive");
+        if (!this.dialog.open || !this.isConnected || session !== this.session) return;
+        this.scene = new NightDriveScene(this.canvas, {
+          onDistance: kilometers => {
+            this.querySelector("[data-drive-distance]")!.textContent = kilometers.toFixed(1).padStart(5, "0");
+          },
+        });
+        this.scene.setPaused(this.paused);
+      } catch {
+        this.querySelector("#drive-instructions")!.textContent = "A quiet moment. Press Escape to head back.";
+        this.setPaused(true);
+      }
+    }
+
+    private onClose = () => {
+      ++this.session;
+      this.scene?.destroy();
+      this.scene = undefined;
+      this.clearSteering();
+      window.clearInterval(this.radioInterval);
+      this.radioInterval = undefined;
+      this.radioRequest?.abort();
+      this.radioRequest = undefined;
+      document.removeEventListener("now-playing:update", this.onRadioUpdate);
+      if (this.scrollLocked) {
+        document.body.style.overflow = this.scrollOverflow;
+        if (this.themeColor !== null) document.querySelector('meta[name="theme-color"]')?.setAttribute("content", this.themeColor);
+        this.scrollLocked = false;
+      }
+      this.querySelector("[data-drive-distance]")!.textContent = "000.0";
+    };
+
+    private onRadioUpdate = (event: Event) => {
+      this.renderRadio(parseTrack((event as CustomEvent).detail));
+    };
+
+    private async refreshRadio() {
+      if (this.radioRequest) return;
+      const controller = new AbortController();
+      const session = this.session;
+      this.radioRequest = controller;
+      const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const track = await fetchNowPlaying("/api/now-playing", controller.signal,
+        this.track ? { ...this.track, isPlaying: false } : null);
+      window.clearTimeout(timeout);
+      if (this.dialog.open && session === this.session) this.renderRadio(track);
+      if (this.radioRequest === controller) this.radioRequest = undefined;
+    }
+
+    private renderRadio(track: Track | null) {
+      this.track = track;
+      const text = (selector: string, value: string) => { this.querySelector(selector)!.textContent = value; };
+      text("[data-drive-radio-status]", track ? track.isPlaying ? "NOW ON THE RADIO" : "LAST ON THE RADIO" : "THE QUIET HOURS");
+      text("[data-drive-radio-title]", track?.title ?? "Just you and the road.");
+      text("[data-drive-radio-artist]", track?.artist ?? "A little room to breathe.");
+      this.querySelector<HTMLElement>("[data-drive-radio-wave]")!.hidden = !track?.isPlaying;
+      const art = this.querySelector<HTMLImageElement>("[data-drive-art]")!;
+      art.hidden = !track?.image;
+      if (track?.image) { if (art.getAttribute("src") !== track.image) art.src = track.image; }
+      else art.removeAttribute("src");
+      this.querySelector<SVGElement>("[data-drive-radio-icon]")!.style.display = track?.image ? "none" : "block";
+      const link = this.querySelector<HTMLAnchorElement>("[data-drive-radio-link]")!;
+      link.hidden = !track;
+      if (track) link.href = musicLinks(track)[0].href;
+      else link.removeAttribute("href");
+    }
+  }
+
+  if (!customElements.get("night-drive")) customElements.define("night-drive", NightDrive);
+</script>
+
+<style>
+  .drive {
+    position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none;
+    margin: 0; padding: 0; border: 0; overflow: hidden; background: #080f1b; color: #eee9dc;
+    color-scheme: dark; font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  }
+  .drive[open] { animation: drive-arrive 650ms ease both; }
+  .drive::backdrop { background: #080f1b; }
+  .drive [hidden] { display: none !important; }
+  .drive canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .drive button, .drive a { -webkit-tap-highlight-color: transparent; }
+  .drive button { font: inherit; color: inherit; cursor: pointer; }
+  .drive :focus-visible { outline: 2px solid #e4c58d; outline-offset: 5px; }
+  .drive-top { position: absolute; inset: max(28px, env(safe-area-inset-top)) 40px auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; pointer-events: none; }
+  .drive-brand { display: flex; align-items: center; gap: 14px; font-size: 10px; font-weight: 600; letter-spacing: 0.18em; color: #aeb8c3; }
+  .drive-brand-dot { margin: 0 8px; color: #65707e; }
+  .drive-badge { display: grid; place-items: center; width: 33px; height: 33px; border: 1px solid #b8c0c04a; border-radius: 10px; background: linear-gradient(140deg, #a8b2b527, #69757f09); color: #d4d9d8; font-size: 16px; font-weight: 800; letter-spacing: -0.1em; padding-right: 2px; box-shadow: inset 0 1px 0 #d4dcdf26; }
+  .drive-close { display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 44px; min-width: 44px; padding: 0 12px; background: #090e1726; border: 1px solid #9aabc326; border-radius: 30px; pointer-events: auto; transition: background 180ms; }
+  .drive-close:hover { background: #aeb8c31a; }
+  .drive-escape { color: #aeb8c3; font-size: 10px; letter-spacing: 0.1em; }
+  .drive-caption { position: absolute; top: 15%; left: 8%; pointer-events: none; }
+  .drive-eyebrow { margin: 0 0 12px; color: #ceb48b; font-size: 10px; letter-spacing: 0.23em; }
+  .drive-caption h2 { margin: 0; font-size: clamp(26px, 3.2vw, 45px); font-weight: 500; line-height: 1.2; letter-spacing: -0.045em; text-shadow: 0 2px 24px #080f1b; }
+  #drive-instructions { margin: 16px 0 0; font-size: 11px; letter-spacing: 0.025em; color: #9aa6b5; }
+  .drive-keyboard-hint span { margin-inline: 8px; color: #566478; }
+  .drive-touch-hint { display: none; }
+  .drive-hud { position: absolute; inset: auto 40px max(30px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: 1fr minmax(280px, 360px) 1fr; align-items: end; gap: 24px; pointer-events: none; }
+  .drive-hud button, .drive-hud a { pointer-events: auto; }
+  .drive-distance { margin: 0 0 8px; color: #ced3d7; font-family: ui-monospace, monospace; font-size: 17px; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+  .drive-distance > span + span { color: #7c8999; font-size: 10px; }
+  .drive-pause { display: flex; gap: 7px; align-items: center; border: 0; background: transparent; padding: 7px 0; font-size: 11px !important; color: #98a5b6 !important; }
+  .drive-pause:hover { color: #eee9dc !important; }
+  .drive-radio { display: flex; align-items: center; gap: 13px; min-width: 0; padding: 14px 16px; border: 1px solid #afc1d52b; border-radius: 16px; background: linear-gradient(130deg, #30415442, #121b2a94); box-shadow: 0 8px 35px #03070c40, inset 0 1px 0 #ffffff04; backdrop-filter: blur(16px); }
+  .drive-radio-art { width: 44px; height: 44px; display: grid; place-items: center; flex-shrink: 0; overflow: hidden; color: #cfba98; border: 1px solid #d4dce215; border-radius: 8px; background: #d5d8dd09; }
+  .drive-radio-art img { width: 100%; height: 100%; object-fit: cover; }
+  .drive-radio-copy { min-width: 0; flex: 1; }
+  .drive-radio-label { display: flex; align-items: center; gap: 9px; margin: 0 0 4px; color: #b9a788; font-size: 8px; font-weight: 700; letter-spacing: 0.14em; }
+  .drive-radio-title { overflow: hidden; margin: 0; color: #e5e7e7; font-size: 13px; font-weight: 600; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+  .drive-radio-artist { overflow: hidden; margin: 3px 0 0; color: #8d9cac; font-size: 11px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+  .drive-radio-link { display: grid; place-items: center; min-width: 30px; height: 36px; color: #9cabbc; border-radius: 6px; }
+  .drive-radio-link:hover { color: #eee9dc; background: #ffffff08; }
+  [data-drive-radio-wave] { display: inline-flex; align-items: center; gap: 2px; height: 10px; }
+  [data-drive-radio-wave] i { width: 2px; height: 8px; border-radius: 2px; background: #b9a788; animation: drive-radio-wave 900ms ease-in-out infinite alternate; }
+  [data-drive-radio-wave] i:nth-child(2) { height: 5px; animation-delay: -250ms; }
+  [data-drive-radio-wave] i:nth-child(3) { animation-delay: -500ms; }
+  [data-drive-radio-wave] i:nth-child(4) { height: 6px; animation-delay: -100ms; }
+  .drive--paused [data-drive-radio-wave] i { animation-play-state: paused; }
+  .drive-steering { display: grid; grid-template-columns: 40px 40px; gap: 6px; justify-content: end; }
+  .drive-steering button { display: grid; place-items: center; width: 40px; height: 38px; border: 1px solid #aeb8c32b; border-radius: 9px; background: #7d8d9e0d; font-size: 18px; user-select: none; touch-action: none; }
+  .drive-steering button:hover, .drive-steering button:active { background: #aeb8c326; border-color: #aeb8c366; }
+  .drive-steering > span { grid-column: 1 / -1; text-align: center; color: #7a899b; font-size: 8px; letter-spacing: 0.13em; margin-top: 4px; }
+  @keyframes drive-arrive { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes drive-radio-wave { to { transform: scaleY(0.35); opacity: 0.6; } }
+  @media (max-width: 680px) {
+    .drive-top { inset-inline: 20px; top: max(18px, env(safe-area-inset-top)); }
+    .drive-brand { gap: 10px; font-size: 8px; letter-spacing: 0.12em; }
+    .drive-brand-dot { margin-inline: 3px; }
+    .drive-escape { display: none; }
+    .drive-caption { left: 25px; right: 20px; top: 15%; }
+    .drive-caption h2 { font-size: clamp(25px, 6vw, 36px); }
+    .drive-caption .drive-eyebrow { font-size: 9px; }
+    #drive-instructions { font-size: 10px; }
+    .drive-hud { inset-inline: 20px; bottom: max(20px, env(safe-area-inset-bottom)); grid-template-columns: 1fr 1fr; gap: 16px; }
+    .drive-radio { grid-column: 1 / -1; grid-row: 1; padding: 12px 14px; }
+    .drive-trip { grid-row: 2; }
+    .drive-steering { grid-row: 2; grid-template-columns: 48px 48px; }
+    .drive-steering button { width: 48px; height: 40px; }
+    .drive-distance { font-size: 14px; margin-bottom: 2px; }
+  }
+  @media (pointer: coarse) {
+    .drive-keyboard-hint { display: none; }
+    .drive-touch-hint { display: inline; }
+  }
+  @media (max-height: 500px) and (min-width: 681px) {
+    .drive-top { top: 12px; }
+    .drive-caption { top: 21%; }
+    .drive-caption h2 { font-size: 25px; }
+    .drive-eyebrow { display: none; }
+    .drive-hud { bottom: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .drive[open], [data-drive-radio-wave] i { animation: none; }
+  }
+</style>
