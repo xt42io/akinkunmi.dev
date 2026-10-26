@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { after, beforeEach, test } from "node:test";
+import { afterEach, beforeEach, test } from "node:test";
 import { GET, POST, OPTIONS } from "../src/pages/api/now-playing.ts";
-import { createTrackStore, TRACK_KEY, TRACK_TTL_SECONDS } from "../src/lib/now-playing-store.ts";
-import { getCurrentTrack } from "../src/lib/now-playing.server.ts";
+import { getCurrentTrack as readTrack, saveCurrentTrack, TRACK_TTL_SECONDS } from "../src/lib/now-playing.server.ts";
+import { createTestDb, createTestEnv } from "./d1-fixture.mjs";
 import { fetchNowPlaying, musicLinks, parseTrack } from "../src/lib/now-playing.ts";
 
 const token = "now-playing-test-token";
@@ -14,24 +14,11 @@ const track = {
   source: "desktop",
   playedAt: "2026-10-26T00:00:00.000Z",
 };
-const envKeys = ["NOW_PLAYING_TOKEN", "REDIS_URL", "CORS_ORIGINS", "WEBSITE_ORIGIN"];
-const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
-
-beforeEach(() => {
-  process.env.NOW_PLAYING_TOKEN = token;
-  process.env.REDIS_URL = "";
-  process.env.WEBSITE_ORIGIN = "https://akinkunmi.dev";
-  process.env.CORS_ORIGINS = "https://akinkunmi.dev,https://music.youtube.com";
-  globalThis.__akinkunmiNowPlaying = undefined;
-});
-
-after(() => {
-  for (const [key, value] of Object.entries(originalEnv)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-  delete globalThis.__akinkunmiNowPlaying;
-});
+let db;
+let env;
+const getCurrentTrack = () => readTrack(db);
+beforeEach(() => { db = createTestDb(); env = createTestEnv(db); });
+afterEach(() => db.sqlite.close());
 
 function context(method, { body, authorization, origin, raw } = {}) {
   const url = new URL("http://localhost:4321/api/now-playing");
@@ -41,6 +28,7 @@ function context(method, { body, authorization, origin, raw } = {}) {
   if (body !== undefined || raw !== undefined) headers.set("Content-Type", "application/json");
   return {
     url,
+    locals: { runtime: { env } },
     request: new Request(url, {
       method,
       headers,
@@ -69,7 +57,7 @@ test("POST rejects missing/wrong tokens without changing the track", async () =>
 });
 
 test("POST fails closed when no token is configured", async () => {
-  delete process.env.NOW_PLAYING_TOKEN;
+  delete env.NOW_PLAYING_TOKEN;
   assert.equal((await POST(authenticated(track))).status, 401);
 });
 
@@ -109,6 +97,16 @@ test("minimal tracks and offset date-times remain supported", async () => {
   assert.deepEqual(await getCurrentTrack(), minimal);
 });
 
+test("Android's base64 JPEG artwork is accepted and preserved for rendering", async () => {
+  const image = "data:image/jpeg;base64,/9j/AA==";
+  const android = { ...track, source: "android", image };
+  assert.equal((await POST(authenticated(android))).status, 200);
+  const response = await (await GET(context("GET"))).json();
+  assert.equal(response.track.image, image);
+  assert.equal(parseTrack(response.track).image, image);
+  assert.equal((await POST(authenticated({ ...android, image: "data:image/svg+xml;base64,PHN2Zz4=" }))).status, 422);
+});
+
 test("CORS allows the extension's authenticated preflight and request", async () => {
   const origin = "https://music.youtube.com";
   const preflight = await OPTIONS(context("OPTIONS", { origin }));
@@ -129,65 +127,28 @@ test("unapproved origins cannot read or write through CORS", async () => {
   assert.equal(await getCurrentTrack(), null);
 });
 
-test("memory expiry is ten minutes from POST, never extended by GET", async () => {
-  let now = 0;
-  const store = createTrackStore(undefined, () => now);
-  await store.save(track);
-  now = 599_999;
-  assert.deepEqual(await store.get(), track);
-  now = 600_000;
-  assert.equal(await store.get(), null);
+test("D1 expires tracks ten minutes after POST, even across separate requests", async () => {
+  await saveCurrentTrack(db, track, 0);
+  assert.deepEqual(await readTrack(db, 599_999), track);
+  assert.equal(await readTrack(db, 600_000), null);
+  assert.equal(await readTrack(db, 600_001), null);
 });
 
-test("new updates refresh the ten-minute expiry", async () => {
-  let now = 0;
-  const store = createTrackStore(undefined, () => now);
-  await store.save(track);
-  now = 500_000;
-  await store.save({ ...track, title: "New song" });
-  now = 600_000;
-  assert.equal((await store.get()).title, "New song");
-  now = 1_100_000;
-  assert.equal(await store.get(), null);
+test("updates replace the one current-track row and reset its expiry", async () => {
+  await saveCurrentTrack(db, track, 0);
+  await saveCurrentTrack(db, { ...track, title: "New song" }, 500_000);
+  assert.equal((await readTrack(db, 600_000)).title, "New song");
+  assert.equal(await readTrack(db, 1_100_000), null);
+  assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS count FROM now_playing').get().count, 1);
+  assert.equal(TRACK_TTL_SECONDS, 600);
 });
 
-test("Redis retains the legacy key, format, and expiry", async () => {
-  let saved;
-  const cache = {
-    async set(...args) { saved = args; },
-    async get(key) { assert.equal(key, TRACK_KEY); return saved?.[1] ?? null; },
-  };
-  const first = createTrackStore(cache);
-  await first.save(track);
-  assert.deepEqual(saved, ["now-playing:latest", JSON.stringify(track), "EX", TRACK_TTL_SECONDS]);
-  const otherInstance = createTrackStore(cache);
-  assert.deepEqual(await otherInstance.get(), track);
-});
-
-test("Redis outages use memory without extending expired tracks", async (t) => {
-  t.mock.method(console, "warn", () => {});
-  let now = 0;
-  const store = createTrackStore({
-    async set() { throw new Error("Redis unavailable"); },
-    async get() { throw new Error("Redis unavailable"); },
-  }, () => now);
-  await store.save(track);
-  assert.deepEqual(await store.get(), track);
-  now = 600_000;
-  assert.equal(await store.get(), null);
-});
-
-test("Redis expiry clears the fallback instead of resurrecting a stale track", async (t) => {
-  t.mock.method(console, "warn", () => {});
-  let available = true;
-  const store = createTrackStore({
-    async set() {},
-    async get() { if (available) return null; throw new Error("Offline"); },
-  });
-  await store.save(track);
-  assert.equal(await store.get(), null);
-  available = false;
-  assert.equal(await store.get(), null);
+test("failed D1 writes return 503 and never acknowledge an unsaved track", async (t) => {
+  t.mock.method(console, "error", () => {});
+  env.DB = { prepare() { throw new Error("D1 unavailable"); } };
+  assert.equal((await POST(authenticated(track))).status, 503);
+  assert.equal(await getCurrentTrack(), null);
+  assert.equal((await GET(context("GET"))).status, 503);
 });
 
 test("track parsing rejects malformed metadata and unsafe optional URLs", () => {
