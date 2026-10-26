@@ -26,17 +26,23 @@ The API is implemented in `src/pages/api/now-playing.ts`:
 
 - `GET /api/now-playing`: publicly returns `{ "track": Track | null }`.
 - `POST /api/now-playing`: validates the bearer token and track payload, then
-  returns `{ "ok": true }`. Each update expires after 600 seconds.
+  returns `{ "ok": true }`. The last song is retained indefinitely.
 - `OPTIONS /api/now-playing`: handles CORS preflights for authorized origins.
 
 Track payloads require nonempty `title` and `artist`, `source` set to `desktop`
 or `android`, and an ISO date-time `playedAt`. Optional fields are `album`,
-`image`, and `url`. Links must use HTTP or HTTPS. Artwork also accepts base64
+`image`, and `url`. Clients also send `isPlaying` as a boolean; older clients
+that omit it are treated as playing. Links must use HTTP or HTTPS. Artwork also accepts base64
 JPEG, PNG, WebP, and GIF data URLs, including the Android client's JPEG artwork.
 
-D1 stores the latest track in a single row with a ten-minute expiry timestamp.
-Reads ignore expired tracks; each update replaces the row. No Redis service or
-process-local fallback is needed, and storage errors return HTTP 503.
+D1 stores the latest song in a single row. Playing clients send a heartbeat every
+30 seconds. If no heartbeat arrives for 90 seconds (for example after a crash or
+network loss), reads return the same song with `isPlaying: false`. Pausing or
+stopping reports `false` immediately, without clearing the song. A stopped update
+only changes the matching song from the same source, so an idle phone cannot
+replace a newer desktop track, or vice versa. No schema migration is required;
+the existing expiry column now controls playback freshness. Storage errors
+return HTTP 503.
 
 The Cloudflare migration generated a new token saved in ignored `.dev.vars`.
 Build both clients from the repository root:
@@ -63,6 +69,7 @@ curl -X POST http://localhost:4321/api/now-playing \
     "title": "Song",
     "artist": "Artist",
     "source": "desktop",
+    "isPlaying": true,
     "playedAt": "2026-05-10T12:00:00.000Z"
   }'
 ```
@@ -93,7 +100,10 @@ can produce a different ID; add that `chrome-extension://<id>` origin to
 
 The content script watches the player bar with `MutationObserver`, debounces
 updates, and forwards changes to the worker. Failed requests are retried; a
-track is only deduplicated after the API accepts it.
+track and playback state are only deduplicated after the API accepts them.
+Media play, pause and ended events update playback state, including resuming the
+same song. Playing tracks send periodic heartbeats. Closing the tab sends a
+best-effort stopped update; the freshness timeout handles abrupt closures.
 
 ## Android App
 
@@ -112,7 +122,11 @@ For a first installation, launch the app, tap **Open Notification Access**, and
 enable access for **Now Playing**.
 
 The app uses `NotificationListenerService` and `MediaSessionManager` to read
-YouTube Music metadata and post changes to the website.
+YouTube Music metadata and playback state. Media-controller callbacks report
+metadata changes, pauses, resumes and session destruction; active-session
+callbacks and periodic checks handle player removal and replacement. Playing
+tracks send heartbeats. Network writes are serialized with timeouts, and failed
+requests can retry without marking an unsent state as synchronized.
 
 ## Website Component
 
@@ -128,7 +142,9 @@ import NowPlaying from "../components/NowPlaying.astro";
 
 Astro reads the current track directly from D1 for the
 initial HTML. A small browser script polls `/api/now-playing` every 10 seconds.
-It displays the latest track or **Nothing playing right now**. No React hydration
+It displays an animated waveform while playing, or a music note with the last
+listened-to song when stopped. The dialog uses **Last listened to** when stopped.
+**Nothing playing right now** only appears before a song has been received. No React hydration
 or `PUBLIC_NOW_PLAYING_API_URL` setting is needed.
 
 During `npm run dev`, the initial HTML reads the live website's Now Playing API,
@@ -140,7 +156,8 @@ Selecting a track opens a native dialog with artwork and links to YouTube Music,
 Spotify, and Apple Music. It supports Escape, backdrop and close-button dismissal,
 keyboard focus management, reduced motion, and the existing PostHog events.
 An optional `apiUrl` prop supports an external endpoint; external requests time
-out after 3 seconds and fall back to the idle state on failure.
+out after 3 seconds. Browser polling retains the previous song on a temporary
+network failure and switches its icon to the stopped state.
 
 ## Verification
 
@@ -149,6 +166,6 @@ npm run test:now-playing
 npm run build
 ```
 
-Tests cover API authentication, validation, CORS, D1 persistence and failures, expiry, and
-music-link generation. The test command uses Node’s native TypeScript support
+Tests cover API authentication, validation, CORS, D1 persistence and failures, playback freshness, retained songs, cross-device
+updates, extension playback events and heartbeats, and music-link generation. The test command uses Node’s native TypeScript support
 (Node 22.18 or newer).
