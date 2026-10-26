@@ -1,45 +1,21 @@
-const Projects = () => {
-  const projects = [
-    {
-      title: "OutRay",
-      description: "Open-source ngrok alternative.",
-      url: "https://outray.dev",
-    },
-    {
-      title: "Byteship",
-      description: "File uploads, storage and delivery.",
-      url: "https://byteship.dev",
-    },
-    {
-      title: "Avnac",
-      description: "Open-source Canva alternative.",
-      url: "https://avnac.design",
-    },
-    {
-      title: "Better Secrets",
-      description: "A better way to manage GitHub Actions secrets.",
-      url: "https://better-secrets.xyz",
-    },
-    {
-      title: "FireFlow",
-      description: "Create automated workflows using natural language.",
-      url: "https://fireflow.run",
-    },
-    {
-      title: "Envii",
-      description:
-        "Backup and restore your environment variables across machines.",
-      url: "https://envii.dev",
-    },
-  ];
+import { featuredProjects, type Project } from "../../content/projects";
+
+interface Props {
+  items?: Project[];
+  headingLevel?: "h1" | "h2";
+  showMoreLink?: boolean;
+}
+
+const Projects = ({ items = featuredProjects, headingLevel = "h2", showMoreLink = false }: Props) => {
+  const Heading = headingLevel;
 
   return (
     <section aria-labelledby="projects-heading">
       <div className="projects-heading">
-        <h2 id="projects-heading">Projects</h2>
+        <Heading id="projects-heading">Projects</Heading>
       </div>
       <ul>
-        {projects.map((project) => (
+        {items.map((project) => (
           <li key={project.title} className="border-b border-hairline last:border-b-0">
             <a
               href={project.url}
@@ -58,6 +34,11 @@ const Projects = () => {
           </li>
         ))}
       </ul>
+      {showMoreLink && (
+        <a href="/projects" className="projects-more">
+          More projects <span aria-hidden="true">→</span>
+        </a>
+      )}
     </section>
   );
 };
