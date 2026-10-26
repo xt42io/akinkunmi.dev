@@ -1,9 +1,9 @@
-const config = window.NOW_PLAYING_CONFIG;
 const DEBOUNCE_MS = 1200;
 const POLL_MS = 5000;
 const DEBUG = false;
 
 let lastSignature = "";
+let pendingSignature = "";
 let domDebounceTimer = undefined;
 let mediaDebounceTimer = undefined;
 let latestMediaSessionTrack = null;
@@ -74,23 +74,16 @@ function currentTrack() {
 }
 
 async function postTrack(track) {
-  debug("posting to", config.API_URL, track);
-
-  const response = await fetch(config.API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.TOKEN}`
-    },
-    body: JSON.stringify(track)
+  await new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: "now-playing:track", track }, (response) => {
+      const error = chrome.runtime.lastError;
+      if (error || !response?.ok) {
+        reject(new Error(error?.message ?? response?.error ?? "No response from Now Playing"));
+      } else {
+        resolve();
+      }
+    });
   });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`POST failed with ${response.status}: ${body}`);
-  }
-
-  debug("post response", response.status);
 }
 
 async function postIfChanged(track) {
@@ -100,18 +93,21 @@ async function postIfChanged(track) {
   }
 
   const signature = `${track.title}::${track.artist}`;
-  if (signature === lastSignature) {
+  if (signature === lastSignature || signature === pendingSignature) {
     debug("unchanged", signature);
     return;
   }
 
-  lastSignature = signature;
+  pendingSignature = signature;
 
   try {
     await postTrack(track);
+    lastSignature = signature;
     debug("posted", track);
   } catch (error) {
     console.warn("Failed to post now playing track", error);
+  } finally {
+    if (pendingSignature === signature) pendingSignature = "";
   }
 }
 
