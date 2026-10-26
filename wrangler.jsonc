@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "akinkunmi-dev",
+  "account_id": "c24bce6c7c75dad3f96b41f09a1f00d5",
+  "main": "./dist/_worker.js/index.js",
+  "compatibility_date": "2026-10-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "routes": [{ "pattern": "akinkunmi.dev", "custom_domain": true }],
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "akinkunmi-dev",
+    "database_id": "7b77faa8-81c5-49e9-bb33-3d73e52b43da",
+    "migrations_dir": "migrations"
+  }],
+  "vars": {
+    "WEBSITE_ORIGIN": "https://akinkunmi.dev",
+    "CORS_ORIGINS": "https://akinkunmi.dev,https://music.youtube.com"
+  },
+  "observability": { "enabled": true }
+}
