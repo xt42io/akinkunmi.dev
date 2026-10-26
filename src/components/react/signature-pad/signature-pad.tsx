@@ -206,10 +206,28 @@ export const SignaturePad = ({
   };
 
   useEffect(() => {
-    if ($el.current) {
-      $el.current.width = $el.current.clientWidth * DPI;
-      $el.current.height = $el.current.clientHeight * DPI;
-    }
+    const canvas = $el.current;
+    if (!canvas) return;
+    const resize = () => {
+      const width = Math.round(canvas.clientWidth * DPI);
+      const height = Math.round(canvas.clientHeight * DPI);
+      if (!width || !height || (width === canvas.width && height === canvas.height)) return;
+      const previous = document.createElement("canvas");
+      previous.width = canvas.width;
+      previous.height = canvas.height;
+      if (canvas.width && canvas.height) previous.getContext("2d")?.drawImage(canvas, 0, 0);
+      const scaleX = width / (canvas.width || width);
+      const scaleY = height / (canvas.height || height);
+      canvas.width = width;
+      canvas.height = height;
+      if (previous.width && previous.height) canvas.getContext("2d")?.drawImage(previous, 0, 0, width, height);
+      setLines(lines => lines.map(line => line.map(point => new Point(point.x * scaleX, point.y * scaleY, point.timestamp))));
+      setCurrentLine(line => line.map(point => new Point(point.x * scaleX, point.y * scaleY, point.timestamp)));
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, []);
 
   return (
