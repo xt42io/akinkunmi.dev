@@ -5,6 +5,18 @@ node_modules
 .vercel
 dist
 
+# Private financial data — never commit, never deploy.
+# Rebuild with: node scripts/build-money-db.mjs "~/Downloads/Customer Statement.xlsx"
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+src/pages/money.astro
+src/pages/api/money.ts
+src/lib/money.ts
+src/components/react/money/
+
 # Editor / IDE state
 .vscode
 .idea
