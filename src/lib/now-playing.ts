@@ -21,6 +21,14 @@ function httpUrl(value: unknown): string | undefined {
   }
 }
 
+export function artworkUrl(value: unknown): string | undefined {
+  return httpUrl(value) ?? (
+    typeof value === "string" && /^data:image\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)
+      ? value
+      : undefined
+  );
+}
+
 export function parseTrack(value: unknown): Track | null {
   if (!value || typeof value !== "object") return null;
   const track = value as Record<string, unknown>;
@@ -38,7 +46,7 @@ export function parseTrack(value: unknown): Track | null {
     playedAt: track.playedAt,
   };
   if (typeof track.album === "string") parsed.album = track.album;
-  const image = httpUrl(track.image);
+  const image = artworkUrl(track.image);
   const url = httpUrl(track.url);
   if (image) parsed.image = image;
   if (url) parsed.url = url;
