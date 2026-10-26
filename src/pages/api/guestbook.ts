@@ -1,144 +1,81 @@
 import type { APIRoute } from "astro";
-import { getSession } from "auth-astro/server";
-import { getDb } from "../../lib/db";
+import { getSession } from "../../lib/auth.ts";
+import { getDb } from "../../lib/d1.ts";
+import { getEnv } from "../../lib/cloudflare.ts";
 
 export const prerender = false;
 
-export const GET: APIRoute = async () => {
-  try {
-    const sql = getDb();
-    const rows = await sql`
-      SELECT
-        id,
-        creation_time_ms,
-        message,
-        author_name,
-        github_username,
-        github_id,
-        author_image,
-        signature,
-        created_at_ms
-      FROM guestbook
-      ORDER BY created_at_ms DESC
-    `;
+interface GuestbookRow {
+  id: string;
+  creation_time_ms: number;
+  message: string;
+  author_name: string;
+  github_username: string | null;
+  github_id: string | null;
+  author_image: string | null;
+  signature: string;
+  created_at_ms: number;
+}
 
-    return Response.json(
-      rows.map((row) => ({
-        _id: row.id,
-        _creationTime: Number(row.creation_time_ms),
-        message: row.message,
-        authorName: row.author_name,
-        githubUsername: row.github_username ?? undefined,
-        githubId: row.github_id ?? undefined,
-        authorImage: row.author_image ?? undefined,
-        signature: row.signature,
-        createdAt: Number(row.created_at_ms),
-      })),
-      { headers: { "Cache-Control": "no-store" } },
-    );
-  } catch (error) {
-    console.error("Guestbook query error:", error);
+export const GET: APIRoute = async ({ locals }) => {
+  try {
+    const { results } = await getDb(locals).prepare(`
+      SELECT id, creation_time_ms, message, author_name, github_username,
+        github_id, author_image, signature, created_at_ms
+      FROM guestbook ORDER BY created_at_ms DESC
+    `).all<GuestbookRow>();
+    return Response.json(results.map((row) => ({
+      _id: row.id,
+      _creationTime: row.creation_time_ms,
+      message: row.message,
+      authorName: row.author_name,
+      githubUsername: row.github_username ?? undefined,
+      githubId: row.github_id ?? undefined,
+      authorImage: row.author_image ?? undefined,
+      signature: row.signature,
+      createdAt: row.created_at_ms,
+    })), { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    console.error("Guestbook D1 read failed");
     return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 };
 
-export const POST: APIRoute = async ({ request }) => {
-  const session = await getSession(request);
-
-  if (!session?.user) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
+export const POST: APIRoute = async ({ request, locals }) => {
   try {
-    const body = await request.json();
-    const { message, signature } = body;
+    const session = await getSession(request, getEnv(locals));
+    if (!session?.user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-    if (
-      !message ||
-      typeof message !== "string" ||
-      message.trim().length === 0
-    ) {
-      return new Response(JSON.stringify({ error: "Message is required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+    let body: unknown;
+    try { body = await request.json(); }
+    catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
+    const { message, signature } = (body ?? {}) as Record<string, unknown>;
+    if (typeof message !== "string" || !message.trim()) {
+      return Response.json({ error: "Message is required" }, { status: 400 });
+    }
+    if (typeof signature !== "string" || !signature) {
+      return Response.json({ error: "Signature is required" }, { status: 400 });
     }
 
-    if (!signature || typeof signature !== "string") {
-      return new Response(JSON.stringify({ error: "Signature is required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const githubId = (session.user as any).id;
-    const githubUsername = (session.user as any).username;
-    const authorName = session.user.name;
-
-    if (
-      !githubId ||
-      githubId === "undefined" ||
-      !githubUsername ||
-      githubUsername === "undefined" ||
-      !authorName
-    ) {
-      return new Response(
-        JSON.stringify({
-          error: "Invalid session. Please sign out and sign back in.",
-        }),
-        { status: 401, headers: { "Content-Type": "application/json" } },
-      );
+    const { id, username, name, image } = session.user;
+    if (!id || id === "undefined" || !username || username === "undefined" || !name) {
+      return Response.json({ error: "Invalid session. Please sign out and sign back in." }, { status: 401 });
     }
 
     const now = Date.now();
-    const sql = getDb();
-    await sql`
-      INSERT INTO guestbook (
-        id,
-        creation_time_ms,
-        message,
-        author_name,
-        github_username,
-        github_id,
-        author_image,
-        signature,
-        created_at_ms
-      ) VALUES (
-        ${crypto.randomUUID()},
-        ${now},
-        ${message.trim()},
-        ${authorName},
-        ${githubUsername},
-        ${githubId},
-        ${session.user.image ?? null},
-        ${signature},
-        ${now}
-      )
-    `;
-
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    console.error("Guestbook API error:", error);
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "23505"
-    ) {
-      return Response.json(
-        { error: "You have already signed the guestbook." },
-        { status: 409 },
-      );
+    const result = await getDb(locals).prepare(`
+      INSERT INTO guestbook (id, creation_time_ms, message, author_name,
+        github_username, github_id, author_image, signature, created_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (github_id) WHERE github_id IS NOT NULL DO NOTHING
+    `).bind(crypto.randomUUID(), now, message.trim(), name, username, id,
+      image ?? null, signature, now).run();
+    if (result.meta.changes === 0) {
+      return Response.json({ error: "You have already signed the guestbook." }, { status: 409 });
     }
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({ success: true });
+  } catch {
+    console.error("Guestbook D1 write failed");
+    return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 };
