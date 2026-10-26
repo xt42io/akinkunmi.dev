@@ -20,7 +20,7 @@ secrets in `.dev.vars` locally and Cloudflare Worker secrets in production:
   Use this same token in your extension and Android client.
 
 `WEBSITE_ORIGIN` and `CORS_ORIGINS` are configured in `wrangler.jsonc`. The latter
-includes the website and `https://music.youtube.com` for extension requests.
+includes the website, YouTube Music and the installed extension's origin.
 
 The API is implemented in `src/pages/api/now-playing.ts`:
 
@@ -69,9 +69,12 @@ curl -X POST http://localhost:4321/api/now-playing \
 
 ## Chrome Extension
 
-Run the client build above. It writes the API URL and token into ignored
-`now-playing/chrome-extension/config.local.js`, which loads after the public
-defaults in `config.js`. The packaged ZIP is
+Run `npm run now-playing:extension` to rebuild only the extension. It writes the
+API URL and token into ignored `now-playing/chrome-extension/config.local.js`.
+The background service worker loads this after the public defaults in `config.js`.
+The token stays in the extension context; the YouTube Music content script sends
+track metadata to the worker, which performs the authenticated request.
+The packaged ZIP is
 `data/now-playing/now-playing-extension.zip`.
 
 Load it as an unpacked extension:
@@ -81,11 +84,16 @@ Load it as an unpacked extension:
 3. Click **Load unpacked** and select `now-playing/chrome-extension`.
 4. Open `https://music.youtube.com` and play a track.
 
-For an existing installation from this source folder, select **Reload** on its
-extension card after rebuilding, then refresh YouTube Music.
+If the original unpacked build exists at
+`now-playing/build/now-playing/chrome-extension`, the build updates that folder
+too, preserving the installed extension ID. Select **Reload** on its extension
+card after rebuilding, then refresh YouTube Music. Loading from another folder
+can produce a different ID; add that `chrome-extension://<id>` origin to
+`CORS_ORIGINS` before deploying the website.
 
 The content script watches the player bar with `MutationObserver`, debounces
-updates, and posts when the title or artist changes.
+updates, and forwards changes to the worker. Failed requests are retried; a
+track is only deduplicated after the API accepts it.
 
 ## Android App
 
@@ -122,6 +130,11 @@ Astro reads the current track directly from D1 for the
 initial HTML. A small browser script polls `/api/now-playing` every 10 seconds.
 It displays the latest track or **Nothing playing right now**. No React hydration
 or `PUBLIC_NOW_PLAYING_API_URL` setting is needed.
+
+During `npm run dev`, the initial HTML reads the live website's Now Playing API,
+and Vite proxies the browser's GET polling requests to that same live endpoint.
+This lets localhost show tracks sent by your phone and extension. Local POST
+requests still use local D1. Production continues to read D1 directly.
 
 Selecting a track opens a native dialog with artwork and links to YouTube Music,
 Spotify, and Apple Music. It supports Escape, backdrop and close-button dismissal,
