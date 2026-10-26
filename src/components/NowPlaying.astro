@@ -1,0 +1,307 @@
+---
+import {
+  fetchNowPlaying,
+  musicLinks,
+  REQUEST_TIMEOUT_MS,
+} from "../lib/now-playing";
+import { getCurrentTrack } from "../lib/now-playing.server";
+
+interface Props {
+  apiUrl?: string;
+}
+
+const { apiUrl = "/api/now-playing" } = Astro.props;
+const track = apiUrl === "/api/now-playing"
+  ? await getCurrentTrack()
+  : await fetchNowPlaying(new URL(apiUrl, Astro.url).href, AbortSignal.timeout(REQUEST_TIMEOUT_MS));
+const dialogId = `now-playing-${crypto.randomUUID()}`;
+const bars = [
+  "h-2 animate-[now-playing-wave_900ms_ease-in-out_infinite]",
+  "h-4 animate-[now-playing-wave_760ms_ease-in-out_120ms_infinite]",
+  "h-3 animate-[now-playing-wave_980ms_ease-in-out_80ms_infinite]",
+  "h-5 animate-[now-playing-wave_820ms_ease-in-out_200ms_infinite]",
+  "h-2 animate-[now-playing-wave_880ms_ease-in-out_160ms_infinite]",
+];
+---
+
+<now-playing data-api-url={apiUrl} data-track={JSON.stringify(track)}>
+  <div aria-live="polite" aria-atomic="true">
+    <p data-idle hidden={Boolean(track)} class="flex items-center gap-2 text-xs text-muted-faint">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="shrink-0" aria-hidden="true">
+        <path d="M9 18V5l12-2v13M9 7l12-2" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </svg>
+      Nothing playing right now
+    </p>
+    <button
+      data-track-button
+      hidden={!track}
+      type="button"
+      aria-haspopup="dialog"
+      aria-controls={dialogId}
+      aria-expanded="false"
+      class="flex max-w-full min-w-0 items-center gap-2.5 rounded text-left"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-accent" aria-hidden="true">
+        <path d="M9 18V5l12-2v13M9 7l12-2" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </svg>
+      <span class="truncate text-xs text-muted">
+        <span data-track-title class="font-semibold text-ink">{track?.title}</span>
+        <span class="text-muted-faint"> · </span>
+        <span data-track-artist>{track?.artist}</span>
+      </span>
+    </button>
+  </div>
+
+  <dialog id={dialogId} aria-label={track ? `Now playing: ${track.title} by ${track.artist}` : "Now playing"}>
+    <button
+      data-close
+      type="button"
+      autofocus
+      class="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full border border-hairline bg-paper/90 text-lg leading-none text-muted transition-colors hover:text-ink"
+      aria-label="Close now playing"
+    >×</button>
+    <div data-artwork hidden={!track?.image} class="relative h-72 w-full shrink-0">
+      <img data-image src={track?.image} alt="" width="288" height="288" class="h-full w-full rounded-lg border border-hairline object-cover shadow-sm" loading="lazy" />
+    </div>
+    <div class="mt-5 min-w-0">
+      <div class="flex items-center justify-between gap-4">
+        <p class="text-sm text-muted">I’m currently listening to</p>
+        <div class="flex items-center gap-1 px-2.5 py-2" aria-hidden="true">
+          {bars.map((bar) => <span class:list={["block w-1 rounded-full bg-accent/80", bar]} />)}
+        </div>
+      </div>
+      <h2 data-title class="mt-2 text-2xl font-medium leading-tight text-ink">{track?.title}</h2>
+      <p data-artist class="mt-1 text-base text-muted">{track?.artist}</p>
+      <p data-album hidden={!track?.album} class="mt-3 text-sm text-muted-faint">{track?.album}</p>
+      <p data-source class="mt-5 inline-flex rounded-full border border-hairline px-3 py-1 text-xs capitalize text-muted">{track?.source}</p>
+      <div class="mt-6 grid grid-cols-3 gap-2">
+        {musicLinks(track).map((link) => (
+          <a
+            data-platform={link.platform}
+            href={link.href}
+            target="_blank"
+            rel="noreferrer"
+            title={`Play on ${link.label}`}
+            aria-label={`Play ${track?.title ?? "track"} on ${link.label}`}
+            class="flex h-10 items-center justify-center gap-2 rounded-lg border border-hairline px-3 text-xs text-muted transition-colors hover:bg-surface hover:text-ink"
+          >
+            <span class="h-4 w-4 shrink-0">
+              {link.platform === "youtube_music" ? (
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-full w-full">
+                  <circle cx="12" cy="12" r="10" fill="#FF0000" />
+                  <circle cx="12" cy="12" r="5.8" fill="none" stroke="white" stroke-width="1.4" />
+                  <path d="M10.3 8.9v6.2l5.3-3.1-5.3-3.1Z" fill="white" />
+                </svg>
+              ) : link.platform === "spotify" ? (
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-full w-full">
+                  <circle cx="12" cy="12" r="10" fill="#1ED760" />
+                  <path d="M7.2 9.3c3.3-1 6.9-.7 9.7 1 .4.2.9.1 1.1-.3.2-.4.1-.9-.3-1.1-3.2-1.9-7.2-2.3-11-1.1-.4.1-.7.6-.5 1 .1.4.6.7 1 .5Zm.4 3.2c2.8-.8 5.4-.5 7.7.9.4.2.8.1 1-.2.2-.4.1-.8-.2-1-2.7-1.6-5.7-2-8.9-1-.4.1-.6.5-.5.9.1.3.5.6.9.4Zm.5 2.9c2-.6 4-.4 5.7.6.3.2.7.1.9-.2.2-.3.1-.7-.2-.9-2-1.2-4.4-1.5-6.8-.8-.3.1-.5.5-.4.8.1.4.4.6.8.5Z" fill="#111" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-full w-full">
+                  <rect width="20" height="20" x="2" y="2" rx="5" fill="#FA243C" />
+                  <path d="M16.8 6.1v8.7c0 1.3-1 2.2-2.4 2.2-1.1 0-2-.6-2-1.5 0-1 1-1.7 2.2-1.7.3 0 .6 0 .8.1V8.6l-5.9 1.2v6.3c0 1.3-1 2.2-2.4 2.2-1.1 0-2-.6-2-1.5 0-1 1-1.7 2.2-1.7.3 0 .6 0 .8.1V8.7l8.7-1.8Z" fill="white" />
+                </svg>
+              )}
+            </span>
+            <span class="truncate">{link.label}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </dialog>
+</now-playing>
+
+<script>
+  import {
+    fetchNowPlaying,
+    musicLinks,
+    parseTrack,
+    POLL_INTERVAL_MS,
+    REQUEST_TIMEOUT_MS,
+    type Track,
+  } from "../lib/now-playing";
+
+  type AnalyticsWindow = Window & {
+    posthog?: { capture?: (event: string, properties: Record<string, unknown>) => void };
+  };
+
+  class NowPlaying extends HTMLElement {
+    private track: Track | null = null;
+    private openedTrack: Track | null = null;
+    private interval?: number;
+    private request?: AbortController;
+    private dialog!: HTMLDialogElement;
+    private trigger!: HTMLButtonElement;
+    private closeMethod = "button";
+
+    connectedCallback() {
+      this.dialog = this.querySelector("dialog")!;
+      this.trigger = this.querySelector("[data-track-button]")!;
+      this.track = parseTrack(JSON.parse(this.dataset.track ?? "null"));
+      this.addEventListener("click", this.onClick);
+      this.dialog.addEventListener("cancel", this.onCancel);
+      this.dialog.addEventListener("close", this.onClose);
+      this.interval = window.setInterval(() => this.refresh(), POLL_INTERVAL_MS);
+    }
+
+    disconnectedCallback() {
+      window.clearInterval(this.interval);
+      this.request?.abort();
+      this.removeEventListener("click", this.onClick);
+      this.dialog.removeEventListener("cancel", this.onCancel);
+      this.dialog.removeEventListener("close", this.onClose);
+      this.dialog.close();
+    }
+
+    private capture(event: string, properties: Record<string, unknown> = {}) {
+      const track = this.track ?? this.openedTrack;
+      if (!track) return;
+      (window as AnalyticsWindow).posthog?.capture?.(event, {
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        source: track.source,
+        has_image: Boolean(track.image),
+        played_at: track.playedAt,
+        ...properties,
+      });
+    }
+
+    private onClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      if (target.closest("[data-track-button]") && this.track) {
+        this.openedTrack = this.track;
+        this.capture("now_playing_modal_opened");
+        this.trigger.setAttribute("aria-expanded", "true");
+        this.dialog.showModal();
+      } else if (target.closest("[data-close]")) {
+        this.closeMethod = "button";
+        this.dialog.close();
+      } else if (target === this.dialog) {
+        const bounds = this.dialog.getBoundingClientRect();
+        if (
+          event.clientX < bounds.left || event.clientX > bounds.right ||
+          event.clientY < bounds.top || event.clientY > bounds.bottom
+        ) {
+          this.closeMethod = "backdrop";
+          this.dialog.close();
+        }
+      } else {
+        const link = target.closest<HTMLAnchorElement>("[data-platform]");
+        if (link) this.capture("now_playing_platform_clicked", {
+          platform: link.dataset.platform,
+          placement: "modal",
+          destination_url: link.href,
+        });
+      }
+    };
+
+    private onCancel = () => { this.closeMethod = "escape"; };
+
+    private onClose = () => {
+      this.capture("now_playing_modal_closed", { close_method: this.closeMethod });
+      this.closeMethod = "button";
+      this.openedTrack = null;
+      this.trigger.setAttribute("aria-expanded", "false");
+    };
+
+    private async refresh() {
+      if (this.request) return;
+      const controller = new AbortController();
+      this.request = controller;
+      const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const track = await fetchNowPlaying(this.dataset.apiUrl!, controller.signal);
+        if (this.isConnected) this.renderTrack(track);
+      } finally {
+        window.clearTimeout(timeout);
+        this.request = undefined;
+      }
+    }
+
+    private renderTrack(track: Track | null) {
+      this.track = track;
+      this.dataset.track = JSON.stringify(track);
+      this.querySelector<HTMLElement>("[data-idle]")!.hidden = Boolean(track);
+      this.trigger.hidden = !track;
+      if (!track) {
+        if (this.dialog.open) this.dialog.close();
+        return;
+      }
+
+      const text = (selector: string, value: string) => {
+        const element = this.querySelector<HTMLElement>(selector)!;
+        if (element.textContent !== value) element.textContent = value;
+      };
+      text("[data-track-title]", track.title);
+      text("[data-track-artist]", track.artist);
+      text("[data-title]", track.title);
+      text("[data-artist]", track.artist);
+      text("[data-album]", track.album ?? "");
+      text("[data-source]", track.source);
+      this.dialog.setAttribute("aria-label", `Now playing: ${track.title} by ${track.artist}`);
+      this.querySelector<HTMLElement>("[data-album]")!.hidden = !track.album;
+      this.querySelector<HTMLElement>("[data-artwork]")!.hidden = !track.image;
+      const image = this.querySelector<HTMLImageElement>("[data-image]")!;
+      if (track.image) {
+        if (image.src !== track.image) image.src = track.image;
+      } else {
+        image.removeAttribute("src");
+      }
+      for (const link of musicLinks(track)) {
+        const element = this.querySelector<HTMLAnchorElement>(`[data-platform="${link.platform}"]`)!;
+        element.href = link.href;
+        element.setAttribute("aria-label", `Play ${track.title} on ${link.label}`);
+      }
+    }
+  }
+
+  if (!customElements.get("now-playing")) {
+    customElements.define("now-playing", NowPlaying);
+  }
+</script>
+
+<style>
+  now-playing {
+    display: block;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  dialog {
+    width: calc(100% - 40px);
+    max-width: 384px;
+    max-height: calc(100dvh - 40px);
+    margin: auto;
+    padding: 24px;
+    overflow-y: auto;
+    border: 1px solid rgb(var(--color-line));
+    border-radius: 16px;
+    background: rgb(var(--color-paper));
+    color: rgb(var(--color-ink));
+    box-shadow: 0 20px 70px rgb(44 44 41 / 0.12);
+  }
+
+  dialog[open] {
+    animation: now-playing-enter 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  dialog::backdrop {
+    background: rgb(var(--color-ink) / 0.2);
+    backdrop-filter: blur(4px);
+  }
+
+  @keyframes now-playing-enter {
+    from { opacity: 0; transform: translateY(12px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+</style>
