@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { GET, POST, OPTIONS } from "../src/pages/api/now-playing.ts";
-import { getCurrentTrack as readTrack, saveCurrentTrack, TRACK_TTL_SECONDS } from "../src/lib/now-playing.server.ts";
+import { getCurrentTrack as readTrack, saveCurrentTrack, PLAYBACK_TTL_SECONDS } from "../src/lib/now-playing.server.ts";
 import { createTestDb, createTestEnv } from "./d1-fixture.mjs";
 import { fetchNowPlaying, musicLinks, parseTrack } from "../src/lib/now-playing.ts";
 
@@ -13,6 +13,7 @@ const track = {
   image: "https://example.com/cover.jpg",
   source: "desktop",
   playedAt: "2026-10-26T00:00:00.000Z",
+  isPlaying: true,
 };
 let db;
 let env;
@@ -83,7 +84,7 @@ test("POST validates required fields, dates, sources, and URLs", async () => {
     null, [], {}, { ...track, title: "  " }, { ...track, artist: 10 },
     { ...track, source: "browser" }, { ...track, playedAt: "yesterday" },
     { ...track, image: "javascript:alert(1)" }, { ...track, url: "file:///etc/passwd" },
-    { ...track, album: {} },
+    { ...track, album: {} }, { ...track, isPlaying: "false" },
   ];
   for (const body of invalid) assert.equal((await POST(authenticated(body))).status, 422);
   assert.equal(await getCurrentTrack(), null);
@@ -94,7 +95,7 @@ test("minimal tracks and offset date-times remain supported", async () => {
     title: "Song", artist: "Artist", source: "android", playedAt: "2026-10-26T01:00:00+01:00",
   };
   assert.equal((await POST(authenticated(minimal))).status, 200);
-  assert.deepEqual(await getCurrentTrack(), minimal);
+  assert.deepEqual(await getCurrentTrack(), { ...minimal, isPlaying: true });
 });
 
 test("Android's base64 JPEG artwork is accepted and preserved for rendering", async () => {
@@ -138,20 +139,55 @@ test("configured extension origins can post with a token but still require authe
   assert.equal((await POST(authenticated(track, { origin: "chrome-extension://other-extension" }))).status, 403);
 });
 
-test("D1 expires tracks ten minutes after POST, even across separate requests", async () => {
+test("only playing status expires; the last song survives indefinitely", async () => {
   await saveCurrentTrack(db, track, 0);
-  assert.deepEqual(await readTrack(db, 599_999), track);
-  assert.equal(await readTrack(db, 600_000), null);
-  assert.equal(await readTrack(db, 600_001), null);
+  assert.deepEqual(await readTrack(db, 89_999), track);
+  assert.deepEqual(await readTrack(db, 90_000), { ...track, isPlaying: false });
+  assert.deepEqual(await readTrack(db, 365 * 86_400_000), { ...track, isPlaying: false });
+  assert.equal(PLAYBACK_TTL_SECONDS, 90);
 });
 
-test("updates replace the one current-track row and reset its expiry", async () => {
+test("playing heartbeats renew freshness without adding rows", async () => {
   await saveCurrentTrack(db, track, 0);
-  await saveCurrentTrack(db, { ...track, title: "New song" }, 500_000);
-  assert.equal((await readTrack(db, 600_000)).title, "New song");
-  assert.equal(await readTrack(db, 1_100_000), null);
+  await saveCurrentTrack(db, track, 60_000);
+  assert.equal((await readTrack(db, 90_000)).isPlaying, true);
+  assert.equal((await readTrack(db, 150_000)).isPlaying, false);
   assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS count FROM now_playing').get().count, 1);
-  assert.equal(TRACK_TTL_SECONDS, 600);
+});
+
+for (const source of ["desktop", "android"]) {
+  test(`${source}: play → pause/stop → resume retains the same song`, async () => {
+    const playing = { ...track, source };
+    const paused = { ...playing, isPlaying: false };
+    assert.equal((await POST(authenticated(playing))).status, 200);
+    assert.deepEqual(await getCurrentTrack(), playing);
+    assert.equal((await POST(authenticated(paused))).status, 200);
+    assert.deepEqual(await (await GET(context("GET"))).json(), { track: paused });
+    assert.deepEqual(await readTrack(db, Date.now() + 86_400_000), paused);
+    assert.equal((await POST(authenticated(playing))).status, 200);
+    assert.deepEqual(await getCurrentTrack(), playing);
+  });
+}
+
+test("a paused device or stale song cannot replace the latest song from another device", async () => {
+  await saveCurrentTrack(db, track);
+  await saveCurrentTrack(db, { ...track, source: "android", isPlaying: false });
+  assert.deepEqual(await getCurrentTrack(), track);
+  const phone = { ...track, source: "android", title: "Phone song" };
+  await saveCurrentTrack(db, phone);
+  await saveCurrentTrack(db, { ...track, isPlaying: false });
+  assert.deepEqual(await getCurrentTrack(), phone);
+  await saveCurrentTrack(db, { ...phone, isPlaying: false });
+  await saveCurrentTrack(db, { ...track, isPlaying: false });
+  assert.deepEqual(await getCurrentTrack(), { ...phone, isPlaying: false });
+});
+
+test("legacy stored tracks stay visible and default to stopped", async () => {
+  const legacy = { ...track };
+  delete legacy.isPlaying;
+  await db.prepare("INSERT INTO now_playing VALUES (1, ?, ?)")
+    .bind(JSON.stringify(legacy), Date.now() + 600_000).run();
+  assert.deepEqual(await getCurrentTrack(), { ...legacy, isPlaying: false });
 });
 
 test("failed D1 writes return 503 and never acknowledge an unsaved track", async (t) => {
@@ -189,4 +225,12 @@ test("browser fetching handles HTTP failures, malformed data, and aborts", async
   assert.equal(await fetchNowPlaying("https://example.com/api", signal), null);
   globalThis.fetch.mock.mockImplementation(async () => { throw new DOMException("Aborted", "AbortError"); });
   assert.equal(await fetchNowPlaying("https://example.com/api", signal), null);
+});
+
+test("a temporary API failure preserves the last song in the browser", async (t) => {
+  const fallback = { ...track, isPlaying: false };
+  t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 503 }));
+  assert.deepEqual(await fetchNowPlaying("https://example.com/api", AbortSignal.timeout(1000), fallback), fallback);
+  globalThis.fetch.mock.mockImplementation(async () => Response.json({ track: null }));
+  assert.equal(await fetchNowPlaying("https://example.com/api", AbortSignal.timeout(1000), fallback), null);
 });
