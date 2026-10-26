@@ -17,7 +17,7 @@
   }],
   "vars": {
     "WEBSITE_ORIGIN": "https://akinkunmi.dev",
-    "CORS_ORIGINS": "https://akinkunmi.dev,https://music.youtube.com"
+    "CORS_ORIGINS": "https://akinkunmi.dev,https://music.youtube.com,chrome-extension://hjehlcodojekgpbfmbgmajbfgfnhlpne"
   },
   "observability": { "enabled": true }
 }
