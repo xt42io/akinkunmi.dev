@@ -15,6 +15,7 @@
   --color-line: 233 231 226;
   --color-surface: 245 244 240;
   --color-accent: 71 106 87;
+  --color-hover: 85 85 85;
 }
 
 body {
@@ -51,15 +52,10 @@ body {
 .site-nav {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 24px;
   margin-bottom: 88px;
   font-size: 13px;
-}
-
-.site-nav__home {
-  font-weight: 600;
-  letter-spacing: -0.02em;
 }
 
 .site-nav__links {
@@ -120,7 +116,7 @@ body {
 
 .intro__bio a:hover,
 .about a:hover {
-  color: rgb(var(--color-accent));
+  color: rgb(var(--color-hover));
   text-decoration-color: currentColor;
 }
 
@@ -156,7 +152,7 @@ body {
 }
 
 .social-links a:hover {
-  color: rgb(var(--color-accent));
+  color: rgb(var(--color-hover));
 }
 
 .social-links svg {
@@ -202,6 +198,13 @@ body {
   font-weight: 700;
 }
 
+.projects-heading h1 {
+  font-size: clamp(30px, 5vw, 36px);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.045em;
+}
+
 .project-link {
   display: grid;
   grid-template-columns: 122px minmax(0, 1fr) 16px;
@@ -233,11 +236,29 @@ body {
 
 .project-link:hover .project-link__name,
 .project-link:hover .project-link__arrow {
-  color: rgb(var(--color-accent));
+  color: rgb(var(--color-hover));
 }
 
 .project-link:hover .project-link__arrow {
   transform: translate(2px, -2px);
+}
+
+.projects-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 24px;
+  color: rgb(var(--color-muted));
+  font-size: 13px;
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--color-line));
+  text-underline-offset: 4px;
+  transition: color 150ms ease, text-decoration-color 150ms ease;
+}
+
+.projects-more:hover {
+  color: rgb(var(--color-hover));
+  text-decoration-color: currentColor;
 }
 
 .site-footer {
