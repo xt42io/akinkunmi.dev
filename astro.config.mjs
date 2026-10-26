@@ -2,14 +2,15 @@ import { defineConfig } from "astro/config";
 
 import tailwind from "@astrojs/tailwind";
 import react from "@astrojs/react";
-import node from "@astrojs/node";
-import auth from "auth-astro";
+import cloudflare from "@astrojs/cloudflare";
 
 // https://astro.build/config
 export default defineConfig({
   output: "server",
-  adapter: node({ mode: "standalone" }),
-  integrations: [tailwind(), react(), auth()],
+  adapter: cloudflare(),
+  integrations: [tailwind(), react()],
+  // Auth.js uses encrypted JWT cookies, not Astro's separate session API.
+  session: { driver: "memory" },
   server:{
     allowedHosts:['.outray.app']
   }
