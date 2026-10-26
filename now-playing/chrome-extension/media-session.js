@@ -7,6 +7,10 @@
     window.postMessage(
       {
         type: EVENT_NAME,
+        isPlaying: (() => {
+          const media = document.querySelector("video, audio");
+          return media ? !media.paused && !media.ended : navigator.mediaSession?.playbackState === "playing";
+        })(),
         title: metadata.title || "",
         artist: metadata.artist || "",
         album: metadata.album || "",
@@ -69,4 +73,7 @@
   patchMediaSessionSetter();
   readCurrent();
   window.setInterval(readCurrent, 3000);
+  for (const event of ["play", "pause", "ended", "emptied"]) {
+    document.addEventListener(event, readCurrent, true);
+  }
 })();
