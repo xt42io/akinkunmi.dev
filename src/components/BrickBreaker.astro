@@ -44,7 +44,7 @@
 
 <script>
   import type { BrickBreakerScene, GameSnapshot } from "../lib/brick-breaker";
-  import { BrickBreakerAnalytics, type GameplayCapture } from "../lib/brick-breaker-analytics";
+  import { BrickBreakerAnalytics, type GameplayCapture, type GameTrigger } from "../lib/brick-breaker-analytics";
 
   class PageBreaker extends HTMLElement {
     private dialog!: HTMLDialogElement;
@@ -52,8 +52,11 @@
     private abort?: AbortController;
     private sequence = "";
     private lastKeyAt = 0;
-    private tapStart?: { x: number; y: number };
+    private tapStart?: { x: number; y: number; pointerId: number; kind: "trigger" | "side"; at: number };
     private lastTap?: { x: number; y: number; time: number };
+    private holdTimer?: number;
+    private sideTaps = 0;
+    private lastSideTapAt = 0;
     private session = 0;
     private overflow = "";
     private locked = false;
@@ -74,8 +77,14 @@
       document.addEventListener("keydown", this.onKeyDown, { signal });
       document.addEventListener("keyup", this.onKeyUp, { signal });
       document.addEventListener("pointerdown", this.onSecretDown, { signal });
+      document.addEventListener("pointermove", this.onSecretMove, { signal });
       document.addEventListener("pointerup", this.onSecretUp, { signal });
+      document.addEventListener("pointercancel", this.resetSecretGestures, { signal });
+      document.addEventListener("scroll", this.resetSecretGestures, { capture: true, signal });
+      document.addEventListener("visibilitychange", () => { if (document.hidden) this.clearKeys(); }, { signal });
+      document.addEventListener("contextmenu", event => { if (this.tapStart) event.preventDefault(); }, { signal });
       window.addEventListener("blur", this.clearKeys, { signal });
+      window.addEventListener("resize", this.resetSecretGestures, { signal });
       window.addEventListener("pagehide", () => this.analytics?.close("navigation"), { signal });
       this.dialog.addEventListener("cancel", () => { this.closeMethod = "escape"; }, { signal });
       this.dialog.addEventListener("close", this.cleanup, { signal });
@@ -121,27 +130,78 @@
     };
 
     private onKeyUp = (event: KeyboardEvent) => { this.keys.delete(event.key); this.updateDirection(); };
-    private clearKeys = () => { this.keys.clear(); this.sequence = ""; this.lastTap = undefined; this.updateDirection(); };
+    private clearKeys = () => { this.keys.clear(); this.sequence = ""; this.resetSecretGestures(); this.updateDirection(); };
     private updateDirection() { this.scene?.setDirection(Number(this.keys.has("ArrowRight")) - Number(this.keys.has("ArrowLeft"))); }
 
-    private onSecretDown = (event: PointerEvent) => {
-      this.tapStart = event.button === 0 && event.target instanceof Element && event.target.closest("[data-breaker-trigger]")
-        ? { x: event.clientX, y: event.clientY } : undefined;
+    private secretTarget(event: PointerEvent): "trigger" | "side" | undefined {
+      const target = event.target;
+      if (!(target instanceof Element) || target.closest("a, button, input, textarea, select, [role='button'], [role='textbox'], [contenteditable]:not([contenteditable='false'])")) return;
+      if (target.closest("[data-breaker-trigger]")) return "trigger";
+      const content = document.querySelector("main")?.getBoundingClientRect();
+      if (!content || (event.clientX >= content.left && event.clientX <= content.right)) return;
+      if (target === document.body || target === document.documentElement || target.matches(".site-shell")) return "side";
+    }
+
+    private cancelSecretPointer() {
+      window.clearTimeout(this.holdTimer);
+      this.holdTimer = undefined;
+      this.tapStart = undefined;
+    }
+
+    private resetSecretGestures = () => {
+      this.cancelSecretPointer();
+      this.lastTap = undefined;
+      this.sideTaps = 0;
+      this.lastSideTapAt = 0;
     };
+
+    private onSecretDown = (event: PointerEvent) => {
+      if (this.tapStart || event.button !== 0 || event.isPrimary === false || event.defaultPrevented || document.querySelector("dialog[open]")) {
+        this.resetSecretGestures(); return;
+      }
+      const kind = this.secretTarget(event);
+      if (!kind) { this.resetSecretGestures(); return; }
+      if (kind === "trigger") { this.sideTaps = 0; this.lastSideTapAt = 0; }
+      else this.lastTap = undefined;
+      this.tapStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, kind, at: performance.now() };
+      this.holdTimer = window.setTimeout(() => {
+        const canOpen = this.tapStart && !document.hidden && !document.querySelector("dialog[open]");
+        this.resetSecretGestures();
+        if (canOpen) void this.openGame("long_press");
+      }, 22_000);
+    };
+
+    private onSecretMove = (event: PointerEvent) => {
+      const start = this.tapStart;
+      if (start && event.pointerId === start.pointerId &&
+        (Math.hypot(start.x - event.clientX, start.y - event.clientY) > 10 || this.secretTarget(event) !== start.kind)) this.resetSecretGestures();
+    };
+
     private onSecretUp = (event: PointerEvent) => {
       const start = this.tapStart;
-      this.tapStart = undefined;
-      if (!start || Math.hypot(start.x - event.clientX, start.y - event.clientY) > 10
-        || !(event.target instanceof Element) || !event.target.closest("[data-breaker-trigger]")) return;
+      if (!start || event.pointerId !== start.pointerId) return;
+      this.cancelSecretPointer();
+      if (Math.hypot(start.x - event.clientX, start.y - event.clientY) > 10
+        || this.secretTarget(event) !== start.kind || document.hidden || document.querySelector("dialog[open]")) { this.resetSecretGestures(); return; }
       const now = performance.now();
+      // A slow release is a hold, never another tap in either secret sequence.
+      if (now - start.at >= 22_000) { this.resetSecretGestures(); void this.openGame("long_press"); return; }
+      if (now - start.at > 600) { this.resetSecretGestures(); return; }
+      if (start.kind === "side") {
+        if (now - this.lastSideTapAt > 3000) this.sideTaps = 0;
+        this.lastSideTapAt = now;
+        if (++this.sideTaps === 22) { this.resetSecretGestures(); void this.openGame("side_taps"); }
+        return;
+      }
       if (this.lastTap && now - this.lastTap.time < 450 && Math.hypot(event.clientX - this.lastTap.x, event.clientY - this.lastTap.y) < 35) {
-        this.lastTap = undefined;
-        if (!document.querySelector("dialog[open]")) void this.openGame("double_tap");
+        this.resetSecretGestures();
+        void this.openGame("double_tap");
       } else this.lastTap = { x: event.clientX, y: event.clientY, time: now };
     };
 
-    private async openGame(trigger: "keyboard" | "double_tap") {
+    private async openGame(trigger: GameTrigger) {
       if (this.dialog.open) return;
+      this.resetSecretGestures();
       this.closeMethod = "button";
       this.analytics = new BrickBreakerAnalytics((event, properties, options) => {
         (window as Window & { posthog?: { capture?: GameplayCapture } }).posthog?.capture?.(event, properties, options);
