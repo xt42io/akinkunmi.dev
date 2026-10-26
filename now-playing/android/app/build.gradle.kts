@@ -1,6 +1,23 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
+
+val localClientConfig = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { load(it) }
+}
+val nowPlayingApiUrl = providers.environmentVariable("NOW_PLAYING_API_URL")
+    .orElse(localClientConfig.getProperty("nowPlaying.apiUrl", "https://akinkunmi.dev/api/now-playing"))
+    .get()
+val nowPlayingToken = providers.environmentVariable("NOW_PLAYING_TOKEN")
+    .orElse(localClientConfig.getProperty("nowPlaying.token", ""))
+    .get()
+require(nowPlayingToken.isNotBlank() && nowPlayingToken != "replace-with-NOW_PLAYING_TOKEN") {
+    "Now Playing token is missing. Run npm run now-playing:build from the repository root."
+}
+fun configString(value: String) = "\"" + value.replace("\\", "\\\\")
+    .replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\""
 
 android {
     namespace = "dev.akinkunmi.nowplaying"
@@ -14,11 +31,11 @@ android {
         applicationId = "dev.akinkunmi.nowplaying"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
 
-        buildConfigField("String", "NOW_PLAYING_API_URL", "\"https://akinkunmi.dev/api/now-playing\"")
-        buildConfigField("String", "NOW_PLAYING_TOKEN", "\"replace-with-NOW_PLAYING_TOKEN\"")
+        buildConfigField("String", "NOW_PLAYING_API_URL", configString(nowPlayingApiUrl))
+        buildConfigField("String", "NOW_PLAYING_TOKEN", configString(nowPlayingToken))
     }
 
     compileOptions {

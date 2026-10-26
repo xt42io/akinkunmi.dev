@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Now Playing for YouTube Music",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Posts the current YouTube Music track to a personal Now Playing endpoint.",
   "content_scripts": [
     {
@@ -12,7 +12,7 @@
     },
     {
       "matches": ["https://music.youtube.com/*"],
-      "js": ["config.js", "content.js"],
+      "js": ["config.js", "config.local.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

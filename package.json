@@ -9,6 +9,7 @@
     "preview": "wrangler dev",
     "astro": "astro",
     "test:now-playing": "node --test tests/now-playing.test.mjs",
+    "now-playing:build": "node scripts/build-now-playing-clients.mjs",
     "money:build": "node scripts/build-money-db.mjs",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "deploy": "npm run build && wrangler deploy",

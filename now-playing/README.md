@@ -39,9 +39,19 @@ Reads ignore expired tracks; each update replaces the row. No Redis service or
 process-local fallback is needed, and storage errors return HTTP 503.
 
 The Cloudflare migration generated a new token saved in ignored `.dev.vars`.
-Copy its `NOW_PLAYING_TOKEN` value into your clients. Reload the extension and
-rebuild/reinstall the Android app after changing configuration. Keep real client
-tokens out of Git.
+Build both clients from the repository root:
+
+```sh
+npm run now-playing:build
+```
+
+This reads `NOW_PLAYING_TOKEN` from `.dev.vars` and uses
+`https://akinkunmi.dev/api/now-playing`. An optional `NOW_PLAYING_API_URL` in
+`.dev.vars` or the shell overrides the endpoint. The build prepares ignored local
+config files, packages the extension ZIP, and assembles the Android debug APK.
+Both artifacts are saved under ignored `data/now-playing/` and contain the token.
+Android builds require an installed Android SDK and JDK; on macOS the script uses
+Android Studio's bundled JDK when `JAVA_HOME` is not set.
 
 Example local request (set `NOW_PLAYING_TOKEN` in your shell first):
 
@@ -59,14 +69,10 @@ curl -X POST http://localhost:4321/api/now-playing \
 
 ## Chrome Extension
 
-Edit `now-playing/chrome-extension/config.js`:
-
-```js
-window.NOW_PLAYING_CONFIG = {
-  API_URL: "https://akinkunmi.dev/api/now-playing",
-  TOKEN: "same-token-as-NOW_PLAYING_TOKEN"
-};
-```
+Run the client build above. It writes the API URL and token into ignored
+`now-playing/chrome-extension/config.local.js`, which loads after the public
+defaults in `config.js`. The packaged ZIP is
+`data/now-playing/now-playing-extension.zip`.
 
 Load it as an unpacked extension:
 
@@ -75,19 +81,27 @@ Load it as an unpacked extension:
 3. Click **Load unpacked** and select `now-playing/chrome-extension`.
 4. Open `https://music.youtube.com` and play a track.
 
+For an existing installation from this source folder, select **Reload** on its
+extension card after rebuilding, then refresh YouTube Music.
+
 The content script watches the player bar with `MutationObserver`, debounces
 updates, and posts when the title or artist changes.
 
 ## Android App
 
-The Android project lives in `now-playing/android`. In
-`now-playing/android/app/build.gradle.kts`, configure:
+The Android project lives in `now-playing/android`. The client build writes
+`nowPlaying.apiUrl` and `nowPlaying.token` into ignored `local.properties`.
+Gradle also accepts `NOW_PLAYING_API_URL` and `NOW_PLAYING_TOKEN` environment
+overrides. Missing tokens stop the build instead of producing a placeholder APK.
 
-- `NOW_PLAYING_API_URL`: `https://akinkunmi.dev/api/now-playing`.
-- `NOW_PLAYING_TOKEN`: the same token configured on the website.
+Install the assembled APK over the existing app to preserve its settings:
 
-Open the project in Android Studio, build, and install it on your phone. Launch
-the app, tap **Open Notification Access**, and enable access for **Now Playing**.
+```sh
+adb install -r data/now-playing/now-playing.apk
+```
+
+For a first installation, launch the app, tap **Open Notification Access**, and
+enable access for **Now Playing**.
 
 The app uses `NotificationListenerService` and `MediaSessionManager` to read
 YouTube Music metadata and post changes to the website.
