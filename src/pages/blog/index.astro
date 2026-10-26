@@ -17,7 +17,7 @@ const posts = (await getCollection('blog'))
     ) : (
       posts.map((post) => (
         <a href={`/blog/${post.slug}`} class="group block py-5 border-b border-hairline last:border-b-0">
-          <h2 class="font-serif text-lg text-off-white group-hover:text-accent transition-colors">
+          <h2 class="font-serif text-lg text-off-white group-hover:text-hover transition-colors">
             {post.data.title}
           </h2>
           <p class="text-muted text-[15px] mt-2 leading-relaxed">{post.data.description}</p>
