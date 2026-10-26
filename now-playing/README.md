@@ -1,38 +1,51 @@
 # Now Playing
 
-Personal YouTube Music now-playing system with one shared backend endpoint, a Chrome extension client, an Android client, and a React UI component.
+The website’s Astro server hosts the now-playing API and UI. The Chrome
+extension and Android client send the current track to the same website.
+A separate Bun or Elysia server is no longer needed.
 
-## Backend
+## API
 
-The backend is an Elysia TypeScript app in `now-playing/backend`.
+Start the website from the repository root:
 
 ```sh
-cd now-playing/backend
-bun install
-cp ../../.env.example .env
-bun run dev
+npm install
+npm run dev
 ```
 
-Required environment:
+Configure these server-only variables in `.env.local` for local development and
+in the website’s runtime environment for production:
 
-- `NOW_PLAYING_TOKEN`: bearer token required by `POST /api/now-playing`.
-- `WEBSITE_ORIGIN`: allowed CORS origin, for example `https://akinkunmi.dev`.
-- `CORS_ORIGINS`: comma-separated allowed browser origins. Include your website and `https://music.youtube.com` for the Chrome extension.
-- `REDIS_URL`: optional Redis connection string. If omitted or Redis fails, the server falls back to in-memory storage.
-- `PORT`: optional, defaults to `3001`.
+- `NOW_PLAYING_TOKEN`: a long random bearer token required by `POST /api/now-playing`.
+  Use this same token in your extension and Android client.
+- `REDIS_URL`: optional Redis connection string. Redis shares the current track
+  between server instances and preserves it across restarts. Without Redis, or
+  while Redis is unavailable, storage is local to each running server process.
+- `WEBSITE_ORIGIN`: allowed website origin; defaults to the current request’s origin.
+- `CORS_ORIGINS`: optional comma-separated allowed origins. Defaults to the website
+  origin and `https://music.youtube.com`. Include YouTube Music for the extension.
 
-Endpoints:
+The API is implemented in `src/pages/api/now-playing.ts`:
 
-- `POST /api/now-playing`: validates and stores the latest track for 600 seconds.
-- `GET /api/now-playing`: returns `{ "track": Track | null }`.
+- `GET /api/now-playing`: publicly returns `{ "track": Track | null }`.
+- `POST /api/now-playing`: validates the bearer token and track payload, then
+  returns `{ "ok": true }`. Each update expires after 600 seconds.
+- `OPTIONS /api/now-playing`: handles CORS preflights for authorized origins.
 
-Redis uses the key `now-playing:latest` and sets `EX 600` on every POST.
+Track payloads require nonempty `title` and `artist`, `source` set to `desktop`
+or `android`, and an ISO date-time `playedAt`. Optional fields are `album`,
+`image`, and `url`; URLs must use HTTP or HTTPS.
 
-Example POST:
+Redis retains the existing `now-playing:latest` key and `EX 600` expiry. Reuse
+`NOW_PLAYING_TOKEN` and `REDIS_URL` from the previous backend when deploying the
+migration. Existing clients need the new API URL below; reload the extension and
+rebuild/reinstall the Android app after changing its configuration.
+
+Example local request (set `NOW_PLAYING_TOKEN` in your shell first):
 
 ```sh
-curl -X POST http://localhost:3001/api/now-playing \
-  -H "Content-Type: application/json" \
+curl -X POST http://localhost:4321/api/now-playing \
+  -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $NOW_PLAYING_TOKEN" \
   -d '{
     "title": "Song",
@@ -48,7 +61,7 @@ Edit `now-playing/chrome-extension/config.js`:
 
 ```js
 window.NOW_PLAYING_CONFIG = {
-  API_URL: "https://music.akinkunmi.dev/api/now-playing",
+  API_URL: "https://akinkunmi.dev/api/now-playing",
   TOKEN: "same-token-as-NOW_PLAYING_TOKEN"
 };
 ```
@@ -57,43 +70,56 @@ Load it as an unpacked extension:
 
 1. Open `chrome://extensions`.
 2. Enable Developer Mode.
-3. Click "Load unpacked".
-4. Select `now-playing/chrome-extension`.
-5. Open `https://music.youtube.com` and play a track.
+3. Click **Load unpacked** and select `now-playing/chrome-extension`.
+4. Open `https://music.youtube.com` and play a track.
 
-The content script watches the YouTube Music player bar with `MutationObserver`, debounces updates, and posts only when title/artist changes.
+The content script watches the player bar with `MutationObserver`, debounces
+updates, and posts when the title or artist changes.
 
 ## Android App
 
-The Android project lives in `now-playing/android`.
+The Android project lives in `now-playing/android`. In
+`now-playing/android/app/build.gradle.kts`, configure:
 
-Edit `now-playing/android/app/build.gradle.kts` and set:
+- `NOW_PLAYING_API_URL`: `https://akinkunmi.dev/api/now-playing`.
+- `NOW_PLAYING_TOKEN`: the same token configured on the website.
 
-- `NOW_PLAYING_API_URL`
-- `NOW_PLAYING_TOKEN`
+Open the project in Android Studio, build, and install it on your phone. Launch
+the app, tap **Open Notification Access**, and enable access for **Now Playing**.
 
-Open the project in Android Studio, build, and install it on your phone. Launch the app and tap "Open Notification Access", then enable access for "Now Playing".
-
-The app uses `NotificationListenerService` plus `MediaSessionManager` to read active media sessions. It filters for YouTube Music package `com.google.android.apps.youtube.music`, extracts media metadata, and posts changes to the backend.
+The app uses `NotificationListenerService` and `MediaSessionManager` to read
+YouTube Music metadata and post changes to the website.
 
 ## Website Component
 
-The React component is at `src/components/react/NowPlaying.tsx`.
-
-Set this in your site environment:
-
-```sh
-PUBLIC_NOW_PLAYING_API_URL=https://music.akinkunmi.dev/api/now-playing
-```
-
-Use it from an Astro page or component:
+The component is at `src/components/NowPlaying.astro`:
 
 ```astro
 ---
-import NowPlaying from "../components/react/NowPlaying";
+import NowPlaying from "../components/NowPlaying.astro";
 ---
 
-<NowPlaying client:load />
+<NowPlaying />
 ```
 
-It polls every 30 seconds and displays either the latest track or "Not listening to anything right now."
+Astro reads the current track directly from the shared server store for the
+initial HTML. A small browser script polls `/api/now-playing` every 10 seconds.
+It displays the latest track or **Nothing playing right now**. No React hydration
+or `PUBLIC_NOW_PLAYING_API_URL` setting is needed.
+
+Selecting a track opens a native dialog with artwork and links to YouTube Music,
+Spotify, and Apple Music. It supports Escape, backdrop and close-button dismissal,
+keyboard focus management, reduced motion, and the existing PostHog events.
+An optional `apiUrl` prop supports an external endpoint; external requests time
+out after 3 seconds and fall back to the idle state on failure.
+
+## Verification
+
+```sh
+npm run test:now-playing
+npm run build
+```
+
+Tests cover API authentication, validation, CORS, expiry, Redis failures, and
+music-link generation. The test command uses Node’s native TypeScript support
+(Node 22.18 or newer).
