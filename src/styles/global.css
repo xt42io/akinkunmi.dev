@@ -27,6 +27,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+[data-breaker-trigger] {
+  touch-action: manipulation;
+}
+
 ::selection {
   background-color: #dce8dc;
   color: rgb(var(--color-ink));
