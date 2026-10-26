@@ -194,6 +194,7 @@ test("one fireball blasts nearby brick edges, scores each once, and becomes norm
   Object.assign(game.balls[0], { x: 270, y: 221, vx: 0, vy: -game.speed });
   const events = game.update(1 / 60);
   assert.equal(events.filter(event => event.kind === "explosion").length, 1);
+  assert.equal(events.find(event => event.kind === "explosion").destroyed, 3);
   assert.deepEqual(events.filter(event => event.kind === "brick").map(event => event.id).sort(), [1, 2, 3]);
   assert.equal(game.score, 60); assert.equal(game.remaining, 1);
   assert.equal(game.balls[0].fire, false);
