@@ -71,16 +71,26 @@ and updates its own sample IDs on subsequent runs. Existing entries are preserve
 The website labels these sample entries during development; production data is
 unaffected.
 
-## Hidden night drive
+## Hidden page breaker
 
-Type `22` within 1.2 seconds outside a text field, or double-tap **going for a
-drive** in the home page's about section. Arrow keys, the pointer, and the on-screen
-buttons steer the car; Escape or the close button returns to the page. The radio
-shows the current or last song from Now Playing without starting any audio.
+Type `22` within 1.2 seconds outside a text field, or double-tap the home page's
+name or the Roman year in the footer. The visible content column becomes the brick field.
+Move with the pointer, touch, or arrow keys; Space launches, P pauses, M toggles
+sound, and Escape restores the page. The HUD tracks score, local best, lives,
+cleared pieces, combos, and active power-ups.
 
-The canvas renderer loads on first use, stops when the dialog closes or the tab
-is hidden, and starts paused for reduced-motion preferences. **Pause scenery**
-freezes the drive independently of the music. No additional service is required.
+Catch falling M, W, S, and F tiles for multiball, a 14-second wider paddle,
+10 seconds of slow motion, and a single-use fireball. The fireball detonates on
+its next brick hit, clearing surrounding bricks within the blast radius, then
+returns to normal. Multiball never duplicates a fire charge. A missed ball costs
+a life only when no balls remain; a two-second countdown on the paddle serves
+the next ball automatically. Keep moving, or press Space/tap to serve early.
+Paddle contact angle and movement affect the bounce.
+Physics uses fixed time steps, and the canvas/audio code loads only on first use.
+Sound is synthesized locally after Play; no assets or services are needed. The
+game pauses in hidden tabs, reduced-motion disables particles and trails, and
+closing restores the original text nodes and styles without navigation. Resizing
+starts a fresh board so collisions follow the new page layout.
 
 ## Verification
 
