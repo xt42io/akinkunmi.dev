@@ -79,7 +79,7 @@ export const SignaturePad = ({
 
         if (ctx) {
           ctx.restore();
-          ctx.fillStyle = "white";
+          ctx.fillStyle = "#2c2c29";
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = "high";
 
@@ -127,7 +127,7 @@ export const SignaturePad = ({
 
       if (ctx) {
         ctx.restore();
-        ctx.fillStyle = "white";
+        ctx.fillStyle = "#2c2c29";
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
 
@@ -191,7 +191,7 @@ export const SignaturePad = ({
       ctx?.clearRect(0, 0, width, height);
 
       if (ctx) {
-        ctx.fillStyle = "white";
+        ctx.fillStyle = "#2c2c29";
       }
 
       newLines.forEach((line) => {
@@ -237,7 +237,7 @@ export const SignaturePad = ({
       <div className="absolute bottom-2 right-2 flex gap-2">
         <button
           type="button"
-          className="text-xs text-zinc-400 hover:text-white transition-colors"
+          className="text-xs text-muted hover:text-ink transition-colors"
           onClick={() => onClearClick()}
         >
           Clear
@@ -249,7 +249,7 @@ export const SignaturePad = ({
           <button
             type="button"
             title="undo"
-            className="text-xs text-zinc-400 hover:text-white transition-colors"
+            className="text-xs text-muted hover:text-ink transition-colors"
             onClick={() => onUndoClick()}
           >
             Undo
