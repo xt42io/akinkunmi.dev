@@ -74,7 +74,10 @@ unaffected.
 ## Hidden page breaker
 
 Type `22` within 1.2 seconds outside a text field, or double-tap the home page's
-name or the Roman year in the footer. The visible content column becomes the brick field.
+name or the Roman year in the footer. You can also hold either of those or an
+empty side margin for 22 seconds, or tap the empty side margins 22 times
+(at most three seconds between taps). Scrolling, dragging, changing tabs, and
+interacting with content cancel the gesture. The visible content column becomes the brick field.
 Move with the pointer, touch, or arrow keys; Space launches, P pauses, M toggles
 sound, and Escape restores the page. The HUD tracks score, local best, lives,
 cleared pieces, combos, and active power-ups.
