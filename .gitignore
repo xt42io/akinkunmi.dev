@@ -3,6 +3,10 @@ node_modules
 .env.local
 .env
 .vercel
+.wrangler
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
 dist
 
 # Private financial data — never commit, never deploy.
