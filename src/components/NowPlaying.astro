@@ -12,9 +12,12 @@ interface Props {
 }
 
 const { apiUrl = "/api/now-playing" } = Astro.props;
-const track = apiUrl === "/api/now-playing"
+const initialApiUrl = import.meta.env.DEV && apiUrl === "/api/now-playing"
+  ? "https://akinkunmi.dev/api/now-playing"
+  : apiUrl;
+const track = initialApiUrl === "/api/now-playing"
   ? await getCurrentTrack(getDb(Astro.locals))
-  : await fetchNowPlaying(new URL(apiUrl, Astro.url).href, AbortSignal.timeout(REQUEST_TIMEOUT_MS));
+  : await fetchNowPlaying(new URL(initialApiUrl, Astro.url).href, AbortSignal.timeout(REQUEST_TIMEOUT_MS));
 const dialogId = `now-playing-${crypto.randomUUID()}`;
 const bars = [
   "h-2 animate-[now-playing-wave_900ms_ease-in-out_infinite]",
