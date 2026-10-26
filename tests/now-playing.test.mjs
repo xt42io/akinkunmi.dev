@@ -1,0 +1,220 @@
+import assert from "node:assert/strict";
+import { after, beforeEach, test } from "node:test";
+import { GET, POST, OPTIONS } from "../src/pages/api/now-playing.ts";
+import { createTrackStore, TRACK_KEY, TRACK_TTL_SECONDS } from "../src/lib/now-playing-store.ts";
+import { getCurrentTrack } from "../src/lib/now-playing.server.ts";
+import { fetchNowPlaying, musicLinks, parseTrack } from "../src/lib/now-playing.ts";
+
+const token = "now-playing-test-token";
+const track = {
+  title: "One & <two>",
+  artist: "Artist / Another",
+  album: "Test album",
+  image: "https://example.com/cover.jpg",
+  source: "desktop",
+  playedAt: "2026-10-26T00:00:00.000Z",
+};
+const envKeys = ["NOW_PLAYING_TOKEN", "REDIS_URL", "CORS_ORIGINS", "WEBSITE_ORIGIN"];
+const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+
+beforeEach(() => {
+  process.env.NOW_PLAYING_TOKEN = token;
+  process.env.REDIS_URL = "";
+  process.env.WEBSITE_ORIGIN = "https://akinkunmi.dev";
+  process.env.CORS_ORIGINS = "https://akinkunmi.dev,https://music.youtube.com";
+  globalThis.__akinkunmiNowPlaying = undefined;
+});
+
+after(() => {
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  delete globalThis.__akinkunmiNowPlaying;
+});
+
+function context(method, { body, authorization, origin, raw } = {}) {
+  const url = new URL("http://localhost:4321/api/now-playing");
+  const headers = new Headers();
+  if (authorization) headers.set("Authorization", authorization);
+  if (origin) headers.set("Origin", origin);
+  if (body !== undefined || raw !== undefined) headers.set("Content-Type", "application/json");
+  return {
+    url,
+    request: new Request(url, {
+      method,
+      headers,
+      body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
+    }),
+  };
+}
+
+const authenticated = (body, extra = {}) => context("POST", {
+  body, authorization: `Bearer ${token}`, ...extra,
+});
+
+test("GET is public, starts idle, and disables caching", async () => {
+  const response = await GET(context("GET"));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  assert.deepEqual(await response.json(), { track: null });
+});
+
+test("POST rejects missing/wrong tokens without changing the track", async () => {
+  for (const authorization of [undefined, "Bearer wrong", "Basic anything"]) {
+    const response = await POST(context("POST", { body: track, authorization }));
+    assert.equal(response.status, 401);
+  }
+  assert.equal(await getCurrentTrack(), null);
+});
+
+test("POST fails closed when no token is configured", async () => {
+  delete process.env.NOW_PLAYING_TOKEN;
+  assert.equal((await POST(authenticated(track))).status, 401);
+});
+
+test("authorized POST is visible through GET and the shared SSR store", async () => {
+  const response = await POST(authenticated(track));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.deepEqual(await getCurrentTrack(), track);
+  assert.deepEqual(await (await GET(context("GET"))).json(), { track });
+  const replacement = { ...track, title: "Another song", source: "android" };
+  await POST(authenticated(replacement));
+  assert.deepEqual(await getCurrentTrack(), replacement);
+});
+
+test("POST rejects malformed JSON", async () => {
+  const response = await POST(authenticated(undefined, { raw: "{" }));
+  assert.equal(response.status, 400);
+  assert.equal(await getCurrentTrack(), null);
+});
+
+test("POST validates required fields, dates, sources, and URLs", async () => {
+  const invalid = [
+    null, [], {}, { ...track, title: "  " }, { ...track, artist: 10 },
+    { ...track, source: "browser" }, { ...track, playedAt: "yesterday" },
+    { ...track, image: "javascript:alert(1)" }, { ...track, url: "file:///etc/passwd" },
+    { ...track, album: {} },
+  ];
+  for (const body of invalid) assert.equal((await POST(authenticated(body))).status, 422);
+  assert.equal(await getCurrentTrack(), null);
+});
+
+test("minimal tracks and offset date-times remain supported", async () => {
+  const minimal = {
+    title: "Song", artist: "Artist", source: "android", playedAt: "2026-10-26T01:00:00+01:00",
+  };
+  assert.equal((await POST(authenticated(minimal))).status, 200);
+  assert.deepEqual(await getCurrentTrack(), minimal);
+});
+
+test("CORS allows the extension's authenticated preflight and request", async () => {
+  const origin = "https://music.youtube.com";
+  const preflight = await OPTIONS(context("OPTIONS", { origin }));
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("Access-Control-Allow-Origin"), origin);
+  assert.match(preflight.headers.get("Access-Control-Allow-Headers"), /Authorization/);
+  const response = await POST(authenticated(track, { origin }));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), origin);
+  assert.equal(response.headers.get("Vary"), "Origin");
+});
+
+test("unapproved origins cannot read or write through CORS", async () => {
+  const origin = "https://unapproved.example";
+  assert.equal((await OPTIONS(context("OPTIONS", { origin }))).status, 403);
+  assert.equal((await GET(context("GET", { origin }))).status, 403);
+  assert.equal((await POST(authenticated(track, { origin }))).status, 403);
+  assert.equal(await getCurrentTrack(), null);
+});
+
+test("memory expiry is ten minutes from POST, never extended by GET", async () => {
+  let now = 0;
+  const store = createTrackStore(undefined, () => now);
+  await store.save(track);
+  now = 599_999;
+  assert.deepEqual(await store.get(), track);
+  now = 600_000;
+  assert.equal(await store.get(), null);
+});
+
+test("new updates refresh the ten-minute expiry", async () => {
+  let now = 0;
+  const store = createTrackStore(undefined, () => now);
+  await store.save(track);
+  now = 500_000;
+  await store.save({ ...track, title: "New song" });
+  now = 600_000;
+  assert.equal((await store.get()).title, "New song");
+  now = 1_100_000;
+  assert.equal(await store.get(), null);
+});
+
+test("Redis retains the legacy key, format, and expiry", async () => {
+  let saved;
+  const cache = {
+    async set(...args) { saved = args; },
+    async get(key) { assert.equal(key, TRACK_KEY); return saved?.[1] ?? null; },
+  };
+  const first = createTrackStore(cache);
+  await first.save(track);
+  assert.deepEqual(saved, ["now-playing:latest", JSON.stringify(track), "EX", TRACK_TTL_SECONDS]);
+  const otherInstance = createTrackStore(cache);
+  assert.deepEqual(await otherInstance.get(), track);
+});
+
+test("Redis outages use memory without extending expired tracks", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  let now = 0;
+  const store = createTrackStore({
+    async set() { throw new Error("Redis unavailable"); },
+    async get() { throw new Error("Redis unavailable"); },
+  }, () => now);
+  await store.save(track);
+  assert.deepEqual(await store.get(), track);
+  now = 600_000;
+  assert.equal(await store.get(), null);
+});
+
+test("Redis expiry clears the fallback instead of resurrecting a stale track", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  let available = true;
+  const store = createTrackStore({
+    async set() {},
+    async get() { if (available) return null; throw new Error("Offline"); },
+  });
+  await store.save(track);
+  assert.equal(await store.get(), null);
+  available = false;
+  assert.equal(await store.get(), null);
+});
+
+test("track parsing rejects malformed metadata and unsafe optional URLs", () => {
+  assert.equal(parseTrack({ title: "Song" }), null);
+  assert.equal(parseTrack({ ...track, title: " " }), null);
+  assert.equal(parseTrack({ ...track, image: "javascript:alert(1)" }).image, undefined);
+});
+
+test("music links encode metadata and only reuse real YouTube Music URLs", () => {
+  const encoded = encodeURIComponent(`${track.title} ${track.artist}`);
+  const links = musicLinks(track);
+  assert.equal(links.length, 3);
+  assert.equal(links[1].href, `https://open.spotify.com/search/${encoded}`);
+  const youtube = "https://music.youtube.com/watch?v=test";
+  assert.equal(musicLinks({ ...track, url: youtube })[0].href, youtube);
+  assert.equal(musicLinks({ ...track, url: "https://music.youtube.com.evil.example/" })[0].href,
+    `https://music.youtube.com/search?q=${encoded}`);
+});
+
+test("browser fetching handles HTTP failures, malformed data, and aborts", async (t) => {
+  const signal = new AbortController().signal;
+  t.mock.method(globalThis, "fetch", async () => Response.json({ track }));
+  assert.deepEqual(await fetchNowPlaying("https://example.com/api", signal), track);
+  globalThis.fetch.mock.mockImplementation(async () => Response.json({ track }, { status: 500 }));
+  assert.equal(await fetchNowPlaying("https://example.com/api", signal), null);
+  globalThis.fetch.mock.mockImplementation(async () => Response.json({ track: { title: 12 } }));
+  assert.equal(await fetchNowPlaying("https://example.com/api", signal), null);
+  globalThis.fetch.mock.mockImplementation(async () => { throw new DOMException("Aborted", "AbortError"); });
+  assert.equal(await fetchNowPlaying("https://example.com/api", signal), null);
+});
