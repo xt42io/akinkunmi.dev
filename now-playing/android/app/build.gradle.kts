@@ -17,7 +17,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        buildConfigField("String", "NOW_PLAYING_API_URL", "\"https://music.akinkunmi.dev/api/now-playing\"")
+        buildConfigField("String", "NOW_PLAYING_API_URL", "\"https://akinkunmi.dev/api/now-playing\"")
         buildConfigField("String", "NOW_PLAYING_TOKEN", "\"replace-with-NOW_PLAYING_TOKEN\"")
     }
 
