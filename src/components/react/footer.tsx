@@ -1,38 +1,26 @@
-const Footer = () => {
-  const yearToRoman = (year: number): string => {
-    const romanNumerals: { [key: number]: string } = {
-      1000: "M",
-      900: "CM",
-      500: "D",
-      400: "CD",
-      100: "C",
-      90: "XC",
-      50: "L",
-      40: "XL",
-      10: "X",
-      9: "IX",
-      5: "V",
-      4: "IV",
-      1: "I",
-    };
+function yearToRoman(year: number): string {
+  const numerals = [
+    [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
+    [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
+    [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+  ] as const;
 
-    let result = "";
-    for (const value of Object.keys(romanNumerals).reverse()) {
-      while (year >= Number(value)) {
-        result += romanNumerals[Number(value)];
-        year -= Number(value);
-      }
+  let result = "";
+  for (const [value, symbol] of numerals) {
+    while (year >= value) {
+      result += symbol;
+      year -= value;
     }
-    return result;
-  };
+  }
+  return result;
+}
 
-  const currentYear = yearToRoman(new Date().getFullYear());
+const Footer = () => {
+  const year = new Date().getFullYear();
 
   return (
-    <footer className="mt-20 sm:mt-24 pt-8 border-t border-hairline">
-      <p className="font-serif text-sm text-muted-faint">
-        © {currentYear} · Akinkunmi
-      </p>
+    <footer className="site-footer">
+      <p>© <span title={String(year)}>{yearToRoman(year)}</span> Akinkunmi</p>
     </footer>
   );
 };
