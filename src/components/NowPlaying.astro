@@ -240,6 +240,7 @@ const bars = [
     private renderTrack(track: Track | null) {
       this.track = track;
       this.dataset.track = JSON.stringify(track);
+      document.dispatchEvent(new CustomEvent("now-playing:update", { detail: track }));
       this.querySelector<HTMLElement>("[data-idle]")!.hidden = Boolean(track);
       this.trigger.hidden = !track;
       if (!track) {
