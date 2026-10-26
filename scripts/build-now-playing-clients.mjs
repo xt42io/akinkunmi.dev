@@ -22,7 +22,7 @@ await mkdir(output, { recursive: true, mode: 0o700 });
 
 // These local credentials and all packaged clients are ignored by Git.
 const localConfig = join(extensionSource, "config.local.js");
-await writeFile(localConfig, `window.NOW_PLAYING_CONFIG = ${JSON.stringify({
+await writeFile(localConfig, `globalThis.NOW_PLAYING_CONFIG = ${JSON.stringify({
   API_URL: endpoint.href, TOKEN: token,
 }, null, 2)};\n`, { mode: 0o600 });
 await chmod(localConfig, 0o600);
@@ -70,14 +70,23 @@ await run("zip", ["-qr", archive, "."], extensionOutput);
 await chmod(archive, 0o600);
 console.log(`Extension built for ${endpoint.href}: ${archive}`);
 
-const env = { ...process.env };
-const studioJava = "/Applications/Android Studio.app/Contents/jbr/Contents/Home";
-if (!env.JAVA_HOME && process.platform === "darwin" && await stat(studioJava).catch(() => null)) {
-  env.JAVA_HOME = studioJava;
+// Preserve the unpacked extension ID for the originally installed build folder.
+const installedExtension = join(root, "now-playing/build/now-playing/chrome-extension");
+if ((await stat(installedExtension).catch(() => null))?.isDirectory()) {
+  await cp(extensionOutput, installedExtension, { recursive: true });
+  console.log("Updated the existing unpacked extension build folder.");
 }
-await run(process.platform === "win32" ? "gradlew.bat" : "./gradlew",
-  ["--no-daemon", ":app:assembleDebug"], android, env);
-const apk = join(output, "now-playing.apk");
-await copyFile(join(android, "app/build/outputs/apk/debug/app-debug.apk"), apk);
-await chmod(apk, 0o600);
-console.log(`Android APK built: ${apk}`);
+
+if (!process.argv.includes("--extension-only")) {
+  const env = { ...process.env };
+  const studioJava = "/Applications/Android Studio.app/Contents/jbr/Contents/Home";
+  if (!env.JAVA_HOME && process.platform === "darwin" && await stat(studioJava).catch(() => null)) {
+    env.JAVA_HOME = studioJava;
+  }
+  await run(process.platform === "win32" ? "gradlew.bat" : "./gradlew",
+    ["--no-daemon", ":app:assembleDebug"], android, env);
+  const apk = join(output, "now-playing.apk");
+  await copyFile(join(android, "app/build/outputs/apk/debug/app-debug.apk"), apk);
+  await chmod(apk, 0o600);
+  console.log(`Android APK built: ${apk}`);
+}
