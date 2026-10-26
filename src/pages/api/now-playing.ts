@@ -22,6 +22,8 @@ const trackSchema = z.object({
   source: z.enum(["desktop", "android"]),
   url: webUrl.optional(),
   playedAt: z.string().datetime({ offset: true }),
+  // Older clients only sent playing tracks.
+  isPlaying: z.boolean().default(true),
 });
 
 function corsHeaders(request: Request, url: URL, env: CloudflareEnv): Headers | null {
