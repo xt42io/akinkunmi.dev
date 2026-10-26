@@ -21,18 +21,7 @@ const { title, wide = false } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#fdfcfa" />
     <link rel="preload" href="/font/nunito-latin.woff2" as="font" type="font/woff2" crossorigin />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='hsl(0,70%,50%)'/></svg>"
-    />
-    <script is:inline>
-      (function () {
-        const hue = Math.floor(Math.random() * 360);
-        const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='hsl(${hue},70%,50%)'/></svg>`;
-        const link = document.querySelector("link[rel='icon']");
-        if (link) link.href = "data:image/svg+xml," + encodeURIComponent(svg);
-      })();
-    </script>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=titanium-22" />
     <meta name="generator" content="Akinkunmi" />
     <title>{title}</title>
 
