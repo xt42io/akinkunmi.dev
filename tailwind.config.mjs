@@ -15,6 +15,7 @@ export default {
         "muted-faint": "rgb(var(--color-faint) / <alpha-value>)",
         hairline: "rgb(var(--color-line) / <alpha-value>)",
         accent: "rgb(var(--color-accent) / <alpha-value>)",
+        hover: "rgb(var(--color-hover) / <alpha-value>)",
         // Compatibility for pages that still use the original theme names.
         "black-001": "rgb(var(--color-paper) / <alpha-value>)",
         "off-white": "rgb(var(--color-ink) / <alpha-value>)",
