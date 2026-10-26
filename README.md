@@ -63,6 +63,17 @@ npm run db:import-postgres -- --local # local D1
 Postgres and Redis are not used by the website runtime. Keep the old database
 and migration backups until the Cloudflare deployment has been confirmed.
 
+## Hidden night drive
+
+Type `22` within 1.2 seconds outside a text field, or double-tap **going for a
+drive** in the home page's about section. Arrow keys, the pointer, and the on-screen
+buttons steer the car; Escape or the close button returns to the page. The radio
+shows the current or last song from Now Playing without starting any audio.
+
+The canvas renderer loads on first use, stops when the dialog closes or the tab
+is hidden, and starts paused for reduced-motion preferences. **Pause scenery**
+freezes the drive independently of the music. No additional service is required.
+
 ## Verification
 
 ```sh
