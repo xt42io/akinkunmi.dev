@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SignaturePad } from "./signature-pad";
 import { signIn, signOut } from "auth-astro/client";
-import { LogIn, Pen } from "lucide-react";
+import { ArrowUpRight, Check, LogIn, PenLine, X } from "lucide-react";
 
 interface Session {
   user?: {
@@ -29,8 +29,6 @@ function formatDate(timestamp: number): string {
     month: "short",
     day: "numeric",
     year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   }).format(new Date(timestamp));
 }
 
@@ -43,6 +41,8 @@ export default function Guestbook() {
   const [submitting, setSubmitting] = useState(false);
   const [signature, setSignature] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
 
   const loadEntries = useCallback(async () => {
     const response = await fetch("/api/guestbook", { cache: "no-store" });
@@ -50,6 +50,7 @@ export default function Guestbook() {
       throw new Error("Could not load the guestbook");
     }
     setEntries(await response.json());
+    setLoadError(false);
   }, []);
 
   const hasSigned =
@@ -60,7 +61,7 @@ export default function Guestbook() {
       : false;
 
   useEffect(() => {
-    loadEntries().catch(() => setEntries([]));
+    loadEntries().catch(() => setLoadError(true));
   }, [loadEntries]);
 
   useEffect(() => {
@@ -104,155 +105,126 @@ export default function Guestbook() {
     }
   };
 
+  useEffect(() => {
+    if (!showModal) return;
+    const dialog = dialogRef.current;
+    const overflow = document.body.style.overflow;
+    dialog?.showModal();
+    document.body.style.overflow = "hidden";
+    return () => {
+      dialog?.close();
+      document.body.style.overflow = overflow;
+    };
+  }, [showModal]);
+
   return (
-    <div>
-      <header className="mb-10 pb-8 border-b border-hairline">
-        <h1 className="text-[clamp(1.75rem,5vw,2.25rem)] font-bold text-ink tracking-tight mb-3">
-          Guestbook
-        </h1>
-        <p className="mb-6 text-sm text-muted">A little corner of the internet to leave your mark.</p>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          {sessionLoading ? null : session?.user ? (
+    <div className="guestbook">
+      <header className="guestbook-header">
+        <div className="guestbook-heading">
+          <h1>Guestbook<span>.</span></h1>
+          <p>Say hello</p>
+        </div>
+        <div className="guestbook-invitation">
+          {sessionLoading ? (
+            <span className="guestbook-auth-loading" aria-label="Checking sign-in status" />
+          ) : session?.user ? (
             hasSigned ? (
-              <p className="text-sm text-muted">You&apos;ve signed.</p>
+              <p className="guestbook-signed"><Check size={15} aria-hidden="true" /> You’ve left your mark. Thank you.</p>
             ) : (
-              <button
-                type="button"
-                onClick={() => setShowModal(true)}
-                className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm text-ink border border-hairline hover:bg-surface hover:text-accent transition-colors w-fit"
-              >
-                <Pen size={14} strokeWidth={1.75} />
-                Sign guestbook
+              <button type="button" onClick={() => setShowModal(true)} className="guestbook-action">
+                <PenLine size={14} strokeWidth={1.75} aria-hidden="true" /> Leave a note
               </button>
             )
           ) : (
-            <button
-              type="button"
-              onClick={() => signIn("github")}
-              className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm text-ink border border-hairline hover:bg-surface hover:text-accent transition-colors w-fit"
-            >
-              <LogIn size={14} strokeWidth={1.75} />
-              Sign in with GitHub
+            <button type="button" onClick={() => signIn("github")} className="guestbook-action">
+              <LogIn size={15} strokeWidth={1.7} aria-hidden="true" /> Sign in with GitHub <ArrowUpRight size={13} aria-hidden="true" />
             </button>
           )}
+          {session?.user ? (
+            <div className="guestbook-account">
+              <span>Signed in as {session.user.name}</span><span aria-hidden="true">·</span>
+              <button type="button" onClick={() => signOut()}>Sign out</button>
+            </div>
+          ) : null}
         </div>
-        {session?.user && (
-          <div className="flex flex-wrap items-center gap-2 mt-6 pt-6 border-t border-hairline text-xs text-muted">
-            {session.user.image && (
-              <img
-                src={session.user.image}
-                alt=""
-                className="w-5 h-5 rounded-full opacity-90"
-              />
-            )}
-            <span>Signed in as {session.user.name}</span>
-            <span className="text-muted-faint">·</span>
-            <button
-              type="button"
-              onClick={() => signOut()}
-              className="text-muted-faint hover:text-accent transition-colors"
-            >
-              Sign out
-            </button>
-          </div>
-        )}
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {entries === null ? (
-          <p className="col-span-full text-sm text-muted">Loading…</p>
-        ) : entries.length === 0 ? (
-          <p className="col-span-full text-sm text-muted leading-relaxed max-w-md">
-            No entries yet. Be the first to sign.
-          </p>
-        ) : (
-          entries.map((entry) => (
-            <figure
-              key={entry._id}
-              className="border-l-2 border-hairline hover:border-accent/45 pl-5 py-1 transition-colors"
-            >
-              <blockquote className="text-off-white text-sm leading-relaxed">
-                {entry.message}
-              </blockquote>
-              {entry.signature ? (
-                <img
-                  src={entry.signature}
-                  alt={`${entry.authorName}'s signature`}
-                  className="w-full h-auto mt-4 brightness-0 opacity-80"
-                />
-              ) : null}
-              <figcaption className="mt-5 pt-4 border-t border-hairline">
-                <cite className="text-sm font-semibold text-ink not-italic">
-                  {entry.authorName}
-                </cite>
-                <p className="text-xs text-muted-faint mt-1.5">
-                  {formatDate(entry.createdAt)}
-                </p>
-              </figcaption>
-            </figure>
-          ))
-        )}
-      </div>
-
-      {showModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-ink/20 backdrop-blur-sm cursor-default border-0 w-full h-full"
-            onClick={() => setShowModal(false)}
-            aria-label="Close"
-          />
-          <div role="dialog" aria-modal="true" aria-labelledby="signature-heading" className="relative rounded-2xl bg-paper border border-hairline p-6 sm:p-8 w-full max-w-lg shadow-xl">
-            <h2 id="signature-heading" className="text-xl font-bold text-ink mb-2">
-              New signature
-            </h2>
-            <p className="text-sm text-muted mb-6">
-              Add a short note, then sign in the box.
-            </p>
-
-            <label htmlFor="guestbook-message" className="block text-xs font-semibold text-muted mb-2">
-              Message
-            </label>
-            <textarea
-              id="guestbook-message"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Write something…"
-              rows={3}
-              className="w-full bg-transparent border border-hairline rounded-lg p-3 text-ink text-sm placeholder-muted-faint min-h-32 resize-y focus:outline-none focus:border-accent mb-5"
-            />
-
-            <p id="signature-label" className="block text-xs font-semibold text-muted mb-2">
-              Signature
-            </p>
-            <SignaturePad
-              aria-labelledby="signature-label"
-              className="h-[140px] w-full rounded-lg border border-hairline mb-5"
-              onChange={setSignature}
-            />
-
-            {error ? <p role="alert" className="text-red-700 text-sm mb-4">{error}</p> : null}
-
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowModal(false)}
-                className="px-3 py-2 text-sm text-muted hover:text-off-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={submitting || !message.trim() || !signature}
-                className="rounded-lg px-4 py-2 text-sm font-semibold text-paper bg-ink hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                {submitting ? "Signing…" : "Sign"}
-              </button>
-            </div>
-          </div>
+      <section aria-labelledby="guestbook-notes-heading" aria-busy={entries === null && !loadError}>
+        <div className="guestbook-notes-heading">
+          <h2 id="guestbook-notes-heading">Notes from visitors</h2>
+          {import.meta.env.DEV && entries?.some(entry => entry._id.startsWith("local-guestbook-")) ? (
+            <span className="guestbook-preview">Local sample notes</span>
+          ) : <span>Newest first</span>}
         </div>
-      ) : null}
+        {loadError ? (
+          <div className="guestbook-empty" role="alert">
+            <p>The guestbook couldn’t load. Let’s try that again.</p>
+            <button type="button" onClick={() => {
+              setLoadError(false);
+              void loadEntries().catch(() => setLoadError(true));
+            }}>Try again <ArrowUpRight size={13} aria-hidden="true" /></button>
+          </div>
+        ) : entries === null ? (
+          <div className="guestbook-grid">
+            <p className="sr-only" role="status">Loading the guestbook…</p>
+            {[0, 1, 2, 3].map(index => <div key={index} className="guestbook-placeholder" aria-hidden="true"><span /><span /><span /></div>)}
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="guestbook-empty">
+            <PenLine size={24} strokeWidth={1.2} aria-hidden="true" />
+            <p>A fresh page, waiting for a first hello.</p>
+            <span>Your note could be the start of something nice.</span>
+          </div>
+        ) : (
+          <div className="guestbook-grid">
+            {entries.map(entry => (
+              <article key={entry._id} className="guestbook-entry">
+                <header className="guestbook-entry-author">
+                  <span className="guestbook-avatar" aria-hidden="true">
+                    {entry.authorImage ? <img src={entry.authorImage} alt="" width="32" height="32" loading="lazy" />
+                      : entry.authorName.split(/\s+/).slice(0, 2).map(part => part[0]).join("")}
+                  </span>
+                  <div>
+                    <h3>{entry.authorName}</h3>
+                  </div>
+                </header>
+                <blockquote>{entry.message}</blockquote>
+                <div className="guestbook-entry-bottom">
+                  {entry.signature ? <img src={entry.signature} alt={`${entry.authorName}’s signature`} className="guestbook-signature" loading="lazy" /> : null}
+                  <time dateTime={new Date(entry.createdAt).toISOString()}>{formatDate(entry.createdAt)}</time>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <dialog ref={dialogRef} className="guestbook-dialog" aria-labelledby="signature-heading"
+        onCancel={() => setShowModal(false)} onClose={() => setShowModal(false)}
+        onClick={event => {
+          if (event.target !== event.currentTarget) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) setShowModal(false);
+        }}>
+        {showModal ? <form onSubmit={event => { event.preventDefault(); void handleSubmit(); }}>
+          <button type="button" className="guestbook-dialog-close" aria-label="Close signing form" onClick={() => setShowModal(false)}><X size={18} aria-hidden="true" /></button>
+          <p className="guestbook-dialog-eyebrow">A SMALL HELLO GOES A LONG WAY</p>
+          <h2 id="signature-heading">Leave your mark<span>.</span></h2>
+          <p className="guestbook-dialog-description">A few words, and a little piece of you.</p>
+          <label htmlFor="guestbook-message">Your note</label>
+          <textarea id="guestbook-message" value={message} onChange={event => setMessage(event.target.value)}
+            placeholder="Say hello, share a thought, or tell me what brought you here…" rows={3} required autoFocus />
+          <div className="guestbook-signature-heading"><p id="signature-label">Your signature</p><span>Make it yours.</span></div>
+          <SignaturePad aria-labelledby="signature-label" className="guestbook-signature-pad" onChange={setSignature} />
+          {error ? <p role="alert" className="guestbook-form-error">{error}</p> : null}
+          <div className="guestbook-form-actions">
+            <button type="button" className="guestbook-cancel" onClick={() => setShowModal(false)}>Maybe later</button>
+            <button type="submit" className="guestbook-action" disabled={submitting || !message.trim() || !signature}>
+              {submitting ? "Leaving your mark…" : "Sign guestbook"}<PenLine size={13} aria-hidden="true" />
+            </button>
+          </div>
+        </form> : null}
+      </dialog>
     </div>
   );
 }
