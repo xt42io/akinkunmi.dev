@@ -21,12 +21,13 @@ function shortcut() {
     matches(selector) { return selector === ".site-shell" ? this.shell : this.editable; }
     closest(selector) {
       if (selector === "[data-breaker-trigger]") return this.trigger ? this : null;
+      if (selector === "[data-breaker-margin]") return this.margin ? this : null;
       return this.interactive || this.editable ? this : null;
     }
   }
   const body = new Element();
   const document = {
-    body, documentElement: new Element(), hidden: false,
+    body, documentElement: Object.assign(new Element(), { clientWidth: 800 }), hidden: false,
     querySelector: selector => selector === "main"
       ? { getBoundingClientRect: () => ({ left: 200, right: 600 }) } : otherDialog,
   };
@@ -52,7 +53,8 @@ function shortcut() {
   const element = new RegisteredElement();
   element.dialog = { open: false };
   element.openGame = async trigger => { triggers.push(trigger); };
-  const pointer = extra => ({ button: 0, pointerId: 1, isPrimary: true, target: body, clientX: 100, clientY: 200, ...extra });
+  const pointer = extra => ({ button: 0, pointerId: 1, pointerType: "mouse", isPrimary: true, target: body,
+    clientX: 100, clientY: 200, cancelable: true, preventDefault() {}, ...extra });
   return {
     element, Element, document, triggers, get opens() { return triggers.length; },
     advance,
@@ -175,6 +177,77 @@ test("long releases do not count as taps; moving within tolerance still allows a
   client.down(); client.advance(1000); client.up(); client.tap(); assert.equal(client.opens, 0);
   const steady = shortcut(); steady.down(); steady.move({ clientX: 106, clientY: 203 });
   steady.advance(22_000); assert.deepEqual(steady.triggers, ["long_press"]);
+});
+
+test("mobile margin targets count 22 touches with fresh pointer IDs and prevent native callouts", () => {
+  const client = shortcut();
+  const margin = new client.Element(); margin.margin = true;
+  let prevented = 0;
+  for (let pointerId = 1; pointerId <= 22; pointerId++) {
+    const event = { target: margin, pointerType: "touch", pointerId, clientX: 12,
+      preventDefault() { prevented++; } };
+    client.down(event); client.advance(40);
+    client.up({ ...event, clientX: 27 }); client.advance(80);
+    assert.equal(client.opens, pointerId === 22 ? 1 : 0);
+  }
+  assert.equal(prevented, 22);
+  assert.deepEqual(client.triggers, ["side_taps"]);
+});
+
+test("a mobile hold tolerates finger drift across the content boundary under implicit capture", () => {
+  const client = shortcut();
+  const event = { pointerType: "touch", clientX: 190 };
+  client.down(event); client.advance(10_000);
+  client.move({ ...event, clientX: 209 }); // Still captured to body, now inside main's rectangle.
+  client.advance(11_999); assert.equal(client.opens, 0);
+  client.advance(1); assert.deepEqual(client.triggers, ["long_press"]);
+  client.up({ ...event, clientX: 209 }); assert.equal(client.opens, 1);
+});
+
+test("mobile name holds tolerate drift, while larger gestures and native scrolling cancel holds", () => {
+  const client = shortcut();
+  const target = new client.Element(); target.trigger = true;
+  const event = { target, pointerType: "touch", clientX: 400 };
+  client.down(event); client.move({ ...event, clientX: 419 });
+  client.advance(22_000); assert.deepEqual(client.triggers, ["long_press"]);
+  for (const interrupt of [
+    s => s.move({ pointerType: "touch", clientX: 125 }),
+    s => s.element.resetSecretGestures(), // Native scroll -> pointercancel / scroll.
+  ]) {
+    const cancelled = shortcut(); cancelled.down({ pointerType: "touch" });
+    cancelled.advance(1000); interrupt(cancelled); cancelled.advance(22_000);
+    assert.equal(cancelled.opens, 0);
+  }
+});
+
+test("margin hit targets fit the actual content bounds and leave the main content unobstructed", () => {
+  const client = shortcut();
+  const margins = { left: { style: {} }, right: { style: {} } };
+  client.element.querySelector = selector => selector.includes("'left'") ? margins.left : margins.right;
+  client.element.updateMargins();
+  assert.equal(margins.left.style.width, "200px"); assert.equal(margins.right.style.width, "200px");
+  client.document.documentElement.clientWidth = 390;
+  client.document.querySelector = selector => selector === "main"
+    ? { getBoundingClientRect: () => ({ left: 24, right: 366 }) } : false;
+  client.element.onResize();
+  assert.equal(margins.left.style.width, "24px"); assert.equal(margins.right.style.width, "24px");
+});
+
+test("mobile browser height changes preserve gestures; a width change cancels them", () => {
+  for (const hold of [false, true]) {
+    const client = shortcut();
+    client.element.querySelector = () => ({ style: {} }); client.element.updateMargins();
+    if (hold) { client.down({ pointerType: "touch" }); client.advance(11_000); }
+    else for (let i = 0; i < 21; i++) client.tap({ pointerType: "touch" });
+    client.element.onResize(); // Browser toolbar changes height, with the same horizontal geometry.
+    if (hold) client.advance(11_000); else client.tap({ pointerType: "touch" });
+    assert.deepEqual(client.triggers, [hold ? "long_press" : "side_taps"]);
+  }
+  const rotated = shortcut();
+  rotated.element.querySelector = () => ({ style: {} }); rotated.element.updateMargins();
+  rotated.down({ pointerType: "touch" }); rotated.advance(11_000);
+  rotated.document.documentElement.clientWidth = 900; rotated.element.onResize();
+  rotated.advance(11_000); assert.equal(rotated.opens, 0);
 });
 
 const bricks = [
