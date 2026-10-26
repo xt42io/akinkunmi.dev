@@ -6,6 +6,7 @@ export type Track = {
   source: "desktop" | "android";
   url?: string;
   playedAt: string;
+  isPlaying: boolean;
 };
 
 export const POLL_INTERVAL_MS = 10_000;
@@ -36,7 +37,8 @@ export function parseTrack(value: unknown): Track | null {
     typeof track.title !== "string" || !track.title.trim() ||
     typeof track.artist !== "string" || !track.artist.trim() ||
     typeof track.playedAt !== "string" ||
-    (track.source !== "desktop" && track.source !== "android")
+    (track.source !== "desktop" && track.source !== "android") ||
+    (track.isPlaying !== undefined && typeof track.isPlaying !== "boolean")
   ) return null;
 
   const parsed: Track = {
@@ -44,6 +46,7 @@ export function parseTrack(value: unknown): Track | null {
     artist: track.artist,
     source: track.source,
     playedAt: track.playedAt,
+    isPlaying: track.isPlaying === true,
   };
   if (typeof track.album === "string") parsed.album = track.album;
   const image = artworkUrl(track.image);
@@ -56,16 +59,16 @@ export function parseTrack(value: unknown): Track | null {
 export async function fetchNowPlaying(
   apiUrl: string,
   signal: AbortSignal,
+  fallback: Track | null = null,
 ): Promise<Track | null> {
   try {
     const response = await fetch(apiUrl, { cache: "no-store", signal });
-    if (!response.ok) return null;
+    if (!response.ok) return fallback;
     const data: unknown = await response.json();
-    return data && typeof data === "object" && "track" in data
-      ? parseTrack(data.track)
-      : null;
+    if (!data || typeof data !== "object" || !("track" in data)) return fallback;
+    return data.track === null ? null : parseTrack(data.track) ?? fallback;
   } catch {
-    return null;
+    return fallback;
   }
 }
 
