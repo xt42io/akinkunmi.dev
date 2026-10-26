@@ -4,7 +4,7 @@ export type Ball = { id: number; x: number; y: number; vx: number; vy: number; r
 export type Power = "multiball" | "wide" | "slow" | "fire";
 export type Drop = { id: number; kind: Power; x: number; y: number; vy: number };
 export type Phase = "ready" | "serving" | "playing" | "paused" | "won" | "lost";
-export type GameEvent = { kind: "brick" | "wall" | "paddle" | "life" | "power" | "win" | "explosion"; x: number; y: number; id?: number; power?: Power; radius?: number };
+export type GameEvent = { kind: "brick" | "wall" | "paddle" | "life" | "power" | "win" | "explosion"; x: number; y: number; id?: number; power?: Power; radius?: number; destroyed?: number };
 export const SERVE_DELAY = 2;
 
 export const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -232,12 +232,15 @@ export class BrickBreakerPhysics {
           ball.fire = false;
           const x = clamp(ball.x, brick.x, brick.x + brick.width);
           const y = clamp(ball.y, brick.y, brick.y + brick.height);
-          events.push({ kind: "explosion", x, y, radius: this.blastRadius });
+          const explosion: GameEvent = { kind: "explosion", x, y, radius: this.blastRadius, destroyed: 0 };
+          events.push(explosion);
+          const before = this.remaining;
           for (const neighbor of this.bricks) {
             const dx = x - clamp(x, neighbor.x, neighbor.x + neighbor.width);
             const dy = y - clamp(y, neighbor.y, neighbor.y + neighbor.height);
             if (Math.hypot(dx, dy) <= this.blastRadius) this.destroyBrick(neighbor, events);
           }
+          explosion.destroyed = before - this.remaining;
         } else {
           this.destroyBrick(brick, events);
         }
