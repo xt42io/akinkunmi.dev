@@ -3,6 +3,7 @@ import type { GameEvent } from "./brick-breaker-physics";
 
 export type CaptureOptions = { transport: "sendBeacon"; send_instantly: true };
 export type GameplayCapture = (event: string, properties: Record<string, unknown>, options?: CaptureOptions) => void;
+export type GameTrigger = "keyboard" | "double_tap" | "long_press" | "side_taps";
 
 /** One session per opening, one round per first launch; frame updates never emit events. */
 export class BrickBreakerAnalytics {
@@ -55,7 +56,7 @@ export class BrickBreakerAnalytics {
     };
   }
 
-  opened(trigger: "keyboard" | "double_tap") { this.emit("opened", { trigger }); }
+  opened(trigger: GameTrigger) { this.emit("opened", { trigger }); }
   failed() { this.emit("load_failed"); }
 
   state(state: GameSnapshot) {
