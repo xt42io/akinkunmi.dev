@@ -1,0 +1,4 @@
+AUTH_SECRET=replace-with-the-existing-auth-secret
+GITHUB_CLIENT_ID=replace-with-the-existing-github-client-id
+GITHUB_CLIENT_SECRET=replace-with-the-existing-github-client-secret
+NOW_PLAYING_TOKEN=replace-with-the-token-used-by-your-clients
