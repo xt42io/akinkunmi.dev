@@ -5,6 +5,7 @@ import {
   REQUEST_TIMEOUT_MS,
 } from "../lib/now-playing";
 import { getCurrentTrack } from "../lib/now-playing.server";
+import { getDb } from "../lib/d1";
 
 interface Props {
   apiUrl?: string;
@@ -12,7 +13,7 @@ interface Props {
 
 const { apiUrl = "/api/now-playing" } = Astro.props;
 const track = apiUrl === "/api/now-playing"
-  ? await getCurrentTrack()
+  ? await getCurrentTrack(getDb(Astro.locals))
   : await fetchNowPlaying(new URL(apiUrl, Astro.url).href, AbortSignal.timeout(REQUEST_TIMEOUT_MS));
 const dialogId = `now-playing-${crypto.randomUUID()}`;
 const bars = [
