@@ -3,6 +3,8 @@ import { getCollection } from 'astro:content';
 import Layout from '../../layouts/Layout.astro';
 import ReactionsWrapper from '../../components/react/ReactionsWrapper';
 
+export const prerender = true;
+
 export async function getStaticPaths() {
   const posts = await getCollection('blog');
   return posts.map((post) => ({
@@ -24,7 +26,7 @@ const { Content } = await post.render();
       {post.data.date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
     </time>
     
-    <div class="prose prose-invert prose-zinc max-w-none">
+    <div class="prose max-w-none">
       <Content />
     </div>
     
@@ -49,13 +51,13 @@ const { Content } = await post.render();
     @apply text-muted list-decimal list-inside mb-4 space-y-1;
   }
   .prose a {
-    @apply text-off-white underline underline-offset-[5px] decoration-white/20 hover:text-accent hover:decoration-accent/50 transition-colors;
+    @apply text-ink underline underline-offset-[5px] decoration-hairline hover:text-accent hover:decoration-accent/50 transition-colors;
   }
   .prose code {
-    @apply bg-white/[0.06] px-1.5 py-0.5 rounded text-sm text-off-white;
+    @apply bg-surface px-1.5 py-0.5 rounded text-sm text-ink;
   }
   .prose pre {
-    @apply bg-white/[0.04] border border-hairline p-4 rounded-md overflow-x-auto mb-4;
+    @apply bg-surface border border-hairline p-4 rounded-lg overflow-x-auto mb-4;
   }
   .prose blockquote {
     @apply border-l border-hairline pl-4 italic text-muted-faint my-4;
