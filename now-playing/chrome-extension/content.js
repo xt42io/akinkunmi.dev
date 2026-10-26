@@ -1,9 +1,12 @@
 const DEBOUNCE_MS = 1200;
 const POLL_MS = 5000;
 const DEBUG = false;
+const HEARTBEAT_MS = 30_000;
 
 let lastSignature = "";
 let pendingSignature = "";
+let lastPostedAt = 0;
+let queuedTrack = null;
 let domDebounceTimer = undefined;
 let mediaDebounceTimer = undefined;
 let latestMediaSessionTrack = null;
@@ -69,8 +72,14 @@ function domTrack() {
   };
 }
 
+function isPlaying() {
+  const media = document.querySelector("video, audio");
+  return media ? !media.paused && !media.ended : latestMediaSessionTrack?.isPlaying === true;
+}
+
 function currentTrack() {
-  return latestMediaSessionTrack ?? domTrack();
+  const track = latestMediaSessionTrack ?? domTrack();
+  return track ? { ...track, isPlaying: isPlaying(), playedAt: new Date().toISOString() } : null;
 }
 
 async function postTrack(track) {
@@ -92,22 +101,28 @@ async function postIfChanged(track) {
     return;
   }
 
-  const signature = `${track.title}::${track.artist}`;
-  if (signature === lastSignature || signature === pendingSignature) {
-    debug("unchanged", signature);
+  const signature = JSON.stringify([track.title, track.artist, track.isPlaying]);
+  if (pendingSignature) {
+    queuedTrack = track;
+    return;
+  }
+  if (signature === lastSignature && (!track.isPlaying || Date.now() - lastPostedAt < HEARTBEAT_MS)) {
     return;
   }
 
   pendingSignature = signature;
-
   try {
     await postTrack(track);
     lastSignature = signature;
+    lastPostedAt = Date.now();
     debug("posted", track);
   } catch (error) {
     console.warn("Failed to post now playing track", error);
   } finally {
-    if (pendingSignature === signature) pendingSignature = "";
+    pendingSignature = "";
+    const next = queuedTrack;
+    queuedTrack = null;
+    if (next) void postIfChanged(next);
   }
 }
 
@@ -125,7 +140,7 @@ function scheduleMediaUpdate(track) {
   mediaDebounceTimer = setTimeout(() => {
     const trackToPost = pendingMediaTrack;
     pendingMediaTrack = null;
-    postIfChanged(trackToPost);
+    postIfChanged(trackToPost ? { ...trackToPost, isPlaying: isPlaying() } : currentTrack());
   }, 700);
 }
 
@@ -148,6 +163,7 @@ function mediaSessionTrackFromEvent(event) {
     title,
     artist,
     album: album || undefined,
+    isPlaying: event.data.isPlaying === true,
     image,
     source: "desktop",
     url: location.href,
@@ -177,7 +193,14 @@ function start() {
   });
 
   scheduleDomUpdate();
-  window.setInterval(scheduleDomUpdate, POLL_MS);
+  window.setInterval(() => postIfChanged(currentTrack()), POLL_MS);
+  for (const event of ["play", "pause", "ended", "emptied"]) {
+    document.addEventListener(event, () => postIfChanged(currentTrack()), true);
+  }
+  window.addEventListener("pagehide", () => {
+    const track = currentTrack();
+    if (track) void postIfChanged({ ...track, isPlaying: false });
+  });
 }
 
 start();
