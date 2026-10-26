@@ -29,6 +29,8 @@ body {
 
 [data-breaker-trigger] {
   touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 ::selection {
