@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 const background = await readFile(new URL("../now-playing/chrome-extension/background.js", import.meta.url), "utf8");
 const content = await readFile(new URL("../now-playing/chrome-extension/content.js", import.meta.url), "utf8");
-const track = { title: "Song", artist: "Artist", source: "desktop", playedAt: new Date().toISOString() };
+const track = { isPlaying: true, title: "Song", artist: "Artist", source: "desktop", playedAt: new Date().toISOString() };
 const sender = { id: "test-extension", tab: { id: 1 }, url: "https://music.youtube.com/watch?v=test" };
 
 function backgroundClient(fetch) {
@@ -79,17 +79,47 @@ test("extension worker reports failed API requests to the content script", async
 
 function contentClient(sendMessage) {
   const warnings = [];
+  const timers = new Map();
+  const events = {};
+  const windowEvents = {};
+  let timerId = 0;
+  let now = 100_000;
+  let poll;
+  const media = { paused: false, ended: false };
+  const window = {
+    addEventListener(name, callback) { windowEvents[name] = callback; },
+    setInterval(callback) { poll = callback; },
+  };
   const context = {
     chrome: { runtime: { sendMessage } },
-    document: { body: {} },
-    window: { addEventListener() {}, setInterval() {} },
+    document: {
+      body: {},
+      querySelector(selector) { return selector === "video, audio" ? media : null; },
+      querySelectorAll() { return []; },
+      addEventListener(name, callback) { events[name] = callback; },
+    },
+    location: { href: sender.url },
+    Date: class extends Date { static now() { return now; } },
+    window,
     console: { log() {}, warn(...args) { warnings.push(args); } },
     MutationObserver: class { observe() {} },
-    setTimeout() {}, clearTimeout() {},
+    setTimeout(callback) { timers.set(++timerId, callback); return timerId; },
+    clearTimeout(id) { timers.delete(id); },
     fetch() { throw new Error("Content scripts must not fetch the API directly"); },
   };
   runInNewContext(content, context);
-  return { post: context.postIfChanged, warnings };
+  return {
+    post: context.postIfChanged, warnings, media, events, windowEvents,
+    advance(ms) { now += ms; },
+    poll: () => poll(),
+    message(data) { windowEvents.message({ source: window, data: { type: "now-playing:media-session", ...data } }); },
+    async flush() {
+      const pending = [...timers.values()];
+      timers.clear();
+      for (const callback of pending) callback();
+      await new Promise(resolve => setImmediate(resolve));
+    },
+  };
 }
 
 test("content script retries a failed track and deduplicates only successful posts", async () => {
@@ -117,4 +147,109 @@ test("content script avoids duplicate requests while a track post is pending", a
   await first;
   await client.post(track);
   assert.equal(attempts, 1);
+});
+
+test("extension reports pause and resume for the same song, with playing heartbeats", async () => {
+  const sent = [];
+  const client = contentClient((message, callback) => { sent.push(JSON.parse(JSON.stringify(message.track))); callback({ ok: true }); });
+  await client.post(track);
+  client.advance(29_999);
+  await client.post(track);
+  assert.equal(sent.length, 1);
+  client.advance(1);
+  await client.post(track);
+  assert.equal(sent.length, 2);
+  await client.post({ ...track, isPlaying: false });
+  client.advance(120_000);
+  await client.post({ ...track, isPlaying: false });
+  assert.equal(sent.length, 3);
+  await client.post(track);
+  assert.deepEqual(sent.map(item => item.isPlaying), [true, true, false, true]);
+  assert.ok(sent.every(item => item.title === track.title));
+});
+
+test("playback changes queued during a request are sent after it completes", async () => {
+  const sent = [];
+  const callbacks = [];
+  const client = contentClient((message, callback) => { sent.push(message.track); callbacks.push(callback); });
+  const pending = client.post(track);
+  await client.post({ ...track, isPlaying: false });
+  assert.equal(sent.length, 1);
+  callbacks.shift()({ ok: true });
+  await pending;
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].isPlaying, false);
+  callbacks.shift()({ ok: true });
+});
+
+test("media events and tab closing retain metadata while reporting stopped", async () => {
+  const sent = [];
+  const client = contentClient((message, callback) => { sent.push(message.track); callback({ ok: true }); });
+  client.message(track);
+  await client.flush();
+  client.media.paused = true;
+  await client.events.pause();
+  client.media.paused = false;
+  await client.events.play();
+  await client.windowEvents.pagehide();
+  assert.deepEqual(sent.map(item => item.isPlaying), [true, false, true, false]);
+  assert.ok(sent.every(item => item.title === track.title && item.artist === track.artist));
+});
+
+test("the MAIN-world bridge reads actual media playback and emits stopped on end", async () => {
+  const bridge = await readFile(new URL("../now-playing/chrome-extension/media-session.js", import.meta.url), "utf8");
+  const sent = [];
+  const events = {};
+  const media = { paused: false, ended: false };
+  const metadata = { title: "Song", artist: "Artist", artwork: [] };
+  runInNewContext(bridge, {
+    document: { querySelector() { return media; }, addEventListener(name, callback) { events[name] = callback; } },
+    navigator: { mediaSession: { metadata, playbackState: "none" } },
+    window: { location: { origin: "https://music.youtube.com" }, setInterval() {}, postMessage(data) { sent.push(data); } },
+  });
+  media.paused = true;
+  events.pause();
+  media.paused = false;
+  events.play();
+  media.ended = true;
+  events.ended();
+  assert.deepEqual(sent.map(item => item.isPlaying), [true, false, true, false]);
+  assert.ok(sent.every(item => item.title === metadata.title));
+});
+
+test("extension play/pause events reach the authenticated API and retained D1 song", async () => {
+  const { createTestDb, createTestEnv } = await import("./d1-fixture.mjs");
+  const { POST, GET } = await import("../src/pages/api/now-playing.ts");
+  const db = createTestDb();
+  const env = createTestEnv(db);
+  env.NOW_PLAYING_TOKEN = "test-token";
+  const url = new URL("https://akinkunmi.dev/api/now-playing");
+  const send = backgroundClient(async (_url, options) => POST({
+    url, request: new Request(url, options), locals: { runtime: { env } },
+  }));
+  const client = contentClient((message, callback) => { send(message).then(callback); });
+  const read = async () => (await (await GET({
+    url, request: new Request(url), locals: { runtime: { env } },
+  })).json()).track;
+  try {
+    client.message(track);
+    await client.flush();
+    assert.equal((await read()).isPlaying, true);
+    client.media.paused = true;
+    await client.events.pause();
+    await client.flush();
+    assert.equal((await read()).title, track.title);
+    assert.equal((await read()).isPlaying, false);
+    client.media.paused = false;
+    await client.events.play();
+    await client.flush();
+    assert.equal((await read()).isPlaying, true);
+    client.media.ended = true;
+    await client.events.ended();
+    await client.flush();
+    assert.equal((await read()).title, track.title);
+    assert.equal((await read()).isPlaying, false);
+  } finally {
+    db.sqlite.close();
+  }
 });
