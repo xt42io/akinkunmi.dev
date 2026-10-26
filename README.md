@@ -92,6 +92,17 @@ game pauses in hidden tabs, reduced-motion disables particles and trails, and
 closing restores the original text nodes and styles without navigation. Resizing
 starts a fresh board so collisions follow the new page layout.
 
+Gameplay uses the existing PostHog integration. Events use the `brick_breaker_`
+prefix: `opened`, `started`, `paused`, `resumed`, `power_up_collected`,
+`fireball_exploded`, `life_lost`, `restarted`, `sound_toggled`, `round_ended`,
+`closed`, and `load_failed`. Each opening has a game session ID, with numbered
+rounds starting on the first launch. Round summaries include score, lives,
+bricks cleared, maximum combo, power-ups, explosions, elapsed time, and active
+play time (excluding pauses and serve countdowns). Outcomes distinguish wins,
+losses, restarts, viewport resets, and abandoned rounds. Individual brick hits
+and animation frames do not send custom events. Navigation exits use a beacon;
+missing or blocked analytics never interrupts gameplay.
+
 ## Verification
 
 ```sh
