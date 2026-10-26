@@ -107,9 +107,10 @@ export default function Guestbook() {
   return (
     <div>
       <header className="mb-10 pb-8 border-b border-hairline">
-        <h1 className="font-serif text-[clamp(1.75rem,5vw,2.25rem)] font-medium text-off-white tracking-tight mb-6">
+        <h1 className="text-[clamp(1.75rem,5vw,2.25rem)] font-bold text-ink tracking-tight mb-3">
           Guestbook
         </h1>
+        <p className="mb-6 text-sm text-muted">A little corner of the internet to leave your mark.</p>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           {sessionLoading ? null : session?.user ? (
             hasSigned ? (
@@ -118,7 +119,7 @@ export default function Guestbook() {
               <button
                 type="button"
                 onClick={() => setShowModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 text-sm text-off-white border border-hairline hover:border-accent/50 hover:text-accent transition-colors w-fit"
+                className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm text-ink border border-hairline hover:bg-surface hover:text-accent transition-colors w-fit"
               >
                 <Pen size={14} strokeWidth={1.75} />
                 Sign guestbook
@@ -128,7 +129,7 @@ export default function Guestbook() {
             <button
               type="button"
               onClick={() => signIn("github")}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm text-off-white border border-hairline hover:border-accent/50 hover:text-accent transition-colors w-fit"
+              className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm text-ink border border-hairline hover:bg-surface hover:text-accent transition-colors w-fit"
             >
               <LogIn size={14} strokeWidth={1.75} />
               Sign in with GitHub
@@ -177,14 +178,14 @@ export default function Guestbook() {
                 <img
                   src={entry.signature}
                   alt={`${entry.authorName}'s signature`}
-                  className="w-full h-auto mt-4 opacity-90"
+                  className="w-full h-auto mt-4 brightness-0 opacity-80"
                 />
               ) : null}
               <figcaption className="mt-5 pt-4 border-t border-hairline">
-                <cite className="font-serif text-sm text-off-white not-italic">
+                <cite className="text-sm font-semibold text-ink not-italic">
                   {entry.authorName}
                 </cite>
-                <p className="text-2xs uppercase tracking-[0.12em] text-muted-faint mt-1.5">
+                <p className="text-xs text-muted-faint mt-1.5">
                   {formatDate(entry.createdAt)}
                 </p>
               </figcaption>
@@ -197,38 +198,40 @@ export default function Guestbook() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"
-            className="absolute inset-0 bg-black/80 cursor-default border-0 w-full h-full"
+            className="absolute inset-0 bg-ink/20 backdrop-blur-sm cursor-default border-0 w-full h-full"
             onClick={() => setShowModal(false)}
             aria-label="Close"
           />
-          <div className="relative bg-black-001 border border-hairline border-l-accent/25 p-6 sm:p-8 w-full max-w-lg">
-            <h2 className="font-serif text-xl text-off-white mb-2">
+          <div role="dialog" aria-modal="true" aria-labelledby="signature-heading" className="relative rounded-2xl bg-paper border border-hairline p-6 sm:p-8 w-full max-w-lg shadow-xl">
+            <h2 id="signature-heading" className="text-xl font-bold text-ink mb-2">
               New signature
             </h2>
             <p className="text-sm text-muted mb-6">
               Add a short note, then sign in the box.
             </p>
 
-            <label className="block text-2xs uppercase tracking-[0.14em] text-muted-faint mb-2">
+            <label htmlFor="guestbook-message" className="block text-xs font-semibold text-muted mb-2">
               Message
             </label>
             <textarea
+              id="guestbook-message"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Write something…"
               rows={3}
-              className="w-full bg-transparent border border-hairline rounded-sm p-3 text-off-white text-sm placeholder-muted-faint min-h-32 resize-y focus:outline-none focus:border-accent/35 mb-5"
+              className="w-full bg-transparent border border-hairline rounded-lg p-3 text-ink text-sm placeholder-muted-faint min-h-32 resize-y focus:outline-none focus:border-accent mb-5"
             />
 
-            <label className="block text-2xs uppercase tracking-[0.14em] text-muted-faint mb-2">
+            <p id="signature-label" className="block text-xs font-semibold text-muted mb-2">
               Signature
-            </label>
+            </p>
             <SignaturePad
-              className="h-[140px] w-full rounded-sm border border-hairline mb-5"
+              aria-labelledby="signature-label"
+              className="h-[140px] w-full rounded-lg border border-hairline mb-5"
               onChange={setSignature}
             />
 
-            {error ? <p className="text-red-400 text-sm mb-4">{error}</p> : null}
+            {error ? <p role="alert" className="text-red-700 text-sm mb-4">{error}</p> : null}
 
             <div className="flex justify-end gap-3">
               <button
@@ -242,7 +245,7 @@ export default function Guestbook() {
                 type="button"
                 onClick={handleSubmit}
                 disabled={submitting || !message.trim() || !signature}
-                className="px-4 py-2 text-sm font-medium text-black-001 bg-accent hover:bg-off-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-paper bg-ink hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {submitting ? "Signing…" : "Sign"}
               </button>
