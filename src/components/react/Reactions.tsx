@@ -55,7 +55,7 @@ const Reactions = ({ slug }: ReactionsProps) => {
             <button
               key={emoji}
               onClick={() => handleReaction(emoji)}
-              className="px-3 py-1.5 rounded-md border border-hairline bg-white/[0.02] hover:bg-white/[0.05] transition-colors"
+              className="px-3 py-1.5 rounded-lg border border-hairline hover:bg-surface transition-colors"
             >
               <span className="mr-1">{emoji}</span>
               {count > 0 && (
