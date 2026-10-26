@@ -78,6 +78,9 @@ name or the Roman year in the footer. You can also hold either of those or an
 empty side margin for 22 seconds, or tap the empty side margins 22 times
 (at most three seconds between taps). Scrolling, dragging, changing tabs, and
 interacting with content cancel the gesture. The visible content column becomes the brick field.
+The side margins have dedicated invisible touch targets that disable double-tap
+zoom and long-press callouts while allowing normal scrolling and pinch zoom.
+Touch holds allow 22 pixels of finger drift; mouse gestures allow 10 pixels.
 Move with the pointer, touch, or arrow keys; Space launches, P pauses, M toggles
 sound, and Escape restores the page. The HUD tracks score, local best, lives,
 cleared pieces, combos, and active power-ups.
