@@ -1,4 +1,6 @@
 <page-breaker>
+  <div class="breaker-margin breaker-margin-left" data-breaker-margin="left" aria-hidden="true"></div>
+  <div class="breaker-margin breaker-margin-right" data-breaker-margin="right" aria-hidden="true"></div>
   <dialog class="breaker" aria-labelledby="breaker-title" aria-describedby="breaker-description">
     <canvas data-breaker-canvas tabindex="0" aria-label="Brick breaker playfield. Move with the arrow keys or pointer. Space launches, P pauses, and Escape exits."></canvas>
     <header class="breaker-top">
@@ -52,11 +54,12 @@
     private abort?: AbortController;
     private sequence = "";
     private lastKeyAt = 0;
-    private tapStart?: { x: number; y: number; pointerId: number; kind: "trigger" | "side"; at: number };
+    private tapStart?: { x: number; y: number; pointerId: number; kind: "trigger" | "side"; at: number; touch: boolean };
     private lastTap?: { x: number; y: number; time: number };
     private holdTimer?: number;
     private sideTaps = 0;
     private lastSideTapAt = 0;
+    private marginLayout = "";
     private session = 0;
     private overflow = "";
     private locked = false;
@@ -72,6 +75,7 @@
       this.abort = new AbortController();
       const signal = this.abort.signal;
       this.dialog = this.querySelector("dialog")!;
+      this.updateMargins();
       try { this.best = Number(localStorage.getItem("page-breaker-best")) || 0; } catch { /* Storage is optional. */ }
       this.text("[data-breaker-best]", String(this.best).padStart(4, "0"));
       document.addEventListener("keydown", this.onKeyDown, { signal });
@@ -84,7 +88,7 @@
       document.addEventListener("visibilitychange", () => { if (document.hidden) this.clearKeys(); }, { signal });
       document.addEventListener("contextmenu", event => { if (this.tapStart) event.preventDefault(); }, { signal });
       window.addEventListener("blur", this.clearKeys, { signal });
-      window.addEventListener("resize", this.resetSecretGestures, { signal });
+      window.addEventListener("resize", this.onResize, { signal });
       window.addEventListener("pagehide", () => this.analytics?.close("navigation"), { signal });
       this.dialog.addEventListener("cancel", () => { this.closeMethod = "escape"; }, { signal });
       this.dialog.addEventListener("close", this.cleanup, { signal });
@@ -133,10 +137,24 @@
     private clearKeys = () => { this.keys.clear(); this.sequence = ""; this.resetSecretGestures(); this.updateDirection(); };
     private updateDirection() { this.scene?.setDirection(Number(this.keys.has("ArrowRight")) - Number(this.keys.has("ArrowLeft"))); }
 
+    private updateMargins() {
+      const content = document.querySelector("main")?.getBoundingClientRect();
+      const viewport = document.documentElement.clientWidth;
+      const layout = `${viewport}:${content?.left}:${content?.right}`;
+      // Mobile browser chrome changes the height without changing the touch targets.
+      if (this.marginLayout && layout !== this.marginLayout) this.resetSecretGestures();
+      this.marginLayout = layout;
+      this.querySelector<HTMLElement>("[data-breaker-margin='left']")!.style.width = `${content ? Math.max(0, content.left) : 0}px`;
+      this.querySelector<HTMLElement>("[data-breaker-margin='right']")!.style.width = `${content ? Math.max(0, viewport - content.right) : 0}px`;
+    }
+
+    private onResize = () => { this.updateMargins(); };
+
     private secretTarget(event: PointerEvent): "trigger" | "side" | undefined {
       const target = event.target;
       if (!(target instanceof Element) || target.closest("a, button, input, textarea, select, [role='button'], [role='textbox'], [contenteditable]:not([contenteditable='false'])")) return;
       if (target.closest("[data-breaker-trigger]")) return "trigger";
+      if (target.closest("[data-breaker-margin]")) return "side";
       const content = document.querySelector("main")?.getBoundingClientRect();
       if (!content || (event.clientX >= content.left && event.clientX <= content.right)) return;
       if (target === document.body || target === document.documentElement || target.matches(".site-shell")) return "side";
@@ -163,7 +181,10 @@
       if (!kind) { this.resetSecretGestures(); return; }
       if (kind === "trigger") { this.sideTaps = 0; this.lastSideTapAt = 0; }
       else this.lastTap = undefined;
-      this.tapStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, kind, at: performance.now() };
+      const touch = event.pointerType === "touch";
+      // Keep native selection/callouts from taking over a hold on these noninteractive targets.
+      if (touch && event.cancelable) event.preventDefault();
+      this.tapStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, kind, at: performance.now(), touch };
       this.holdTimer = window.setTimeout(() => {
         const canOpen = this.tapStart && !document.hidden && !document.querySelector("dialog[open]");
         this.resetSecretGestures();
@@ -174,15 +195,18 @@
     private onSecretMove = (event: PointerEvent) => {
       const start = this.tapStart;
       if (start && event.pointerId === start.pointerId &&
-        (Math.hypot(start.x - event.clientX, start.y - event.clientY) > 10 || this.secretTarget(event) !== start.kind)) this.resetSecretGestures();
+        (Math.hypot(start.x - event.clientX, start.y - event.clientY) > (start.touch ? 22 : 10)
+          || (!start.touch && this.secretTarget(event) !== start.kind))) this.resetSecretGestures();
     };
 
     private onSecretUp = (event: PointerEvent) => {
       const start = this.tapStart;
       if (!start || event.pointerId !== start.pointerId) return;
       this.cancelSecretPointer();
-      if (Math.hypot(start.x - event.clientX, start.y - event.clientY) > 10
-        || this.secretTarget(event) !== start.kind || document.hidden || document.querySelector("dialog[open]")) { this.resetSecretGestures(); return; }
+      // Touch pointers are implicitly captured at pointerdown, so keep the original target.
+      if (Math.hypot(start.x - event.clientX, start.y - event.clientY) > (start.touch ? 22 : 10)
+        || (!start.touch && this.secretTarget(event) !== start.kind)
+        || document.hidden || document.querySelector("dialog[open]")) { this.resetSecretGestures(); return; }
       const now = performance.now();
       // A slow release is a hold, never another tap in either secret sequence.
       if (now - start.at >= 22_000) { this.resetSecretGestures(); void this.openGame("long_press"); return; }
@@ -318,6 +342,9 @@
 </script>
 
 <style>
+  .breaker-margin { position: fixed; top: 0; bottom: 0; width: 0; z-index: 1; touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .breaker-margin-left { left: 0; }
+  .breaker-margin-right { right: 0; }
   .breaker { position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; overflow: hidden; background: transparent; color: #2c2c29; font-family: "Nunito", system-ui, sans-serif; }
   .breaker::backdrop { background: #fdfcfa0a; }
   .breaker [hidden] { display: none !important; }
