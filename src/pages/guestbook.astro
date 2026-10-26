@@ -1,8 +1,11 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import GuestbookWrapper from '../components/react/GuestbookWrapper';
+import Footer from '../components/react/footer';
+import '../styles/guestbook.css';
 ---
 
 <Layout title='Guestbook - Akinkunmi'>
 	<GuestbookWrapper client:load />
+	<Footer />
 </Layout>
