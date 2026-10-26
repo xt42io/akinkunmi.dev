@@ -20,7 +20,7 @@ const Footer = () => {
 
   return (
     <footer className="site-footer">
-      <p>© <span title={String(year)}>{yearToRoman(year)}</span> Akinkunmi</p>
+      <p>© <span title={String(year)} data-breaker-trigger>{yearToRoman(year)}</span> Akinkunmi</p>
     </footer>
   );
 };
