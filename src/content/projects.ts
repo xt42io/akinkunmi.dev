@@ -13,7 +13,7 @@ export const projects: Props[] = [
     name: "Destino",
     description: "File-based routing framework based on Express.js.",
     website: "https://destino.run",
-    github: "https://github.com/akinloluwami/destino",
+    github: "https://github.com/xt42io/destino",
     status: "wip",
   },
   {
@@ -27,7 +27,7 @@ export const projects: Props[] = [
     name: "LogDrop",
     description: "API analytics, logging, monitoring and alerts for NodeJS.",
     // website: "https://www.logdrop.co",
-    github: "https://github.com/akinloluwami/logdrop",
+    github: "https://github.com/xt42io/logdrop",
     tags: ["TypeScript", "Next.js", "TailwindCSS", "Postgres", "Prisma"],
   },
 ];
