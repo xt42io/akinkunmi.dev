@@ -4,16 +4,20 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["DM Sans", "ui-sans-serif", "system-ui", "sans-serif"],
-        serif: ["Newsreader", "Georgia", "ui-serif", "serif"],
+        sans: ["Nunito", "ui-sans-serif", "system-ui", "sans-serif"],
+        serif: ["Nunito", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       colors: {
-        "black-001": "#0c0b09",
-        "off-white": "#f5f2eb",
-        muted: "#9a958c",
-        "muted-faint": "#6b6560",
-        hairline: "rgba(245, 242, 235, 0.09)",
-        accent: "#c4b59d",
+        paper: "rgb(var(--color-paper) / <alpha-value>)",
+        ink: "rgb(var(--color-ink) / <alpha-value>)",
+        surface: "rgb(var(--color-surface) / <alpha-value>)",
+        muted: "rgb(var(--color-muted) / <alpha-value>)",
+        "muted-faint": "rgb(var(--color-faint) / <alpha-value>)",
+        hairline: "rgb(var(--color-line) / <alpha-value>)",
+        accent: "rgb(var(--color-accent) / <alpha-value>)",
+        // Compatibility for pages that still use the original theme names.
+        "black-001": "rgb(var(--color-paper) / <alpha-value>)",
+        "off-white": "rgb(var(--color-ink) / <alpha-value>)",
       },
       fontSize: {
         "2xs": ["0.6875rem", { lineHeight: "1.4" }],
