@@ -16,7 +16,8 @@
     "deploy": "npm run build && wrangler deploy",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:import-postgres": "node scripts/migrate-postgres-to-d1.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "db:seed:guestbook": "node scripts/seed-guestbook.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",
