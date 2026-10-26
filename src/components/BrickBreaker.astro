@@ -1,0 +1,299 @@
+<page-breaker>
+  <dialog class="breaker" aria-labelledby="breaker-title" aria-describedby="breaker-description">
+    <canvas data-breaker-canvas tabindex="0" aria-label="Brick breaker playfield. Move with the arrow keys or pointer. Space launches, P pauses, and Escape exits."></canvas>
+    <header class="breaker-top">
+      <div class="breaker-brand"><span class="breaker-badge">22</span><span>PAGE<br />BREAKER</span></div>
+      <dl class="breaker-stats">
+        <div><dt>Score</dt><dd data-breaker-score>0000</dd></div>
+        <div class="breaker-best"><dt>Best</dt><dd data-breaker-best>0000</dd></div>
+        <div><dt>Lives</dt><dd data-breaker-lives>● ● ●</dd></div>
+      </dl>
+      <div class="breaker-controls">
+        <button data-breaker-sound type="button" aria-label="Turn sound off (M)" aria-pressed="true" title="Sound (M)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m11 5-6 4H2v6h3l6 4V5Z"/><path data-sound-waves d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/><path data-sound-muted style="display:none" d="m16 9 6 6m0-6-6 6"/></svg>
+        </button>
+        <button data-breaker-pause type="button" aria-label="Pause (P)" title="Pause (P)"><span data-breaker-pause-icon aria-hidden="true">Ⅱ</span></button>
+        <button data-breaker-restart type="button" aria-label="Restart game" title="Restart"><span aria-hidden="true">↻</span></button>
+        <button data-breaker-close type="button" aria-label="Exit game and restore page" title="Exit (Esc)"><span aria-hidden="true">×</span></button>
+      </div>
+      <div class="breaker-progress"><i data-breaker-progress></i></div>
+    </header>
+
+    <div class="breaker-panel" data-breaker-panel>
+      <p class="breaker-eyebrow">A SMALL BREAK FROM THE INTERNET</p>
+      <h2 id="breaker-title">This page is the game.</h2>
+      <p id="breaker-description">Getting the page ready…</p>
+      <div class="breaker-legend" data-breaker-legend>
+        <span><b class="breaker-power-m">M</b> Multiball</span>
+        <span><b class="breaker-power-w">W</b> Wide paddle</span>
+        <span><b class="breaker-power-s">S</b> Slow motion</span>
+        <span><b class="breaker-power-f">F</b> Fireball</span>
+      </div>
+      <button data-breaker-play class="breaker-play" type="button" disabled autofocus><span data-breaker-play-label>Play</span><kbd>SPACE</kbd></button>
+      <p class="breaker-panel-hint">Move your mouse, drag, or use ← →.</p>
+    </div>
+
+    <p class="breaker-toast" data-breaker-toast role="status" aria-live="polite" hidden></p>
+    <footer class="breaker-bottom">
+      <p class="breaker-hint"><span class="breaker-keyboard-hint">← → move <i>·</i> Space launch <i>·</i> P pause <i>·</i> Esc leave</span><span class="breaker-touch-hint">Drag to move. Tap to launch.</span></p>
+      <p data-breaker-effects class="breaker-effects"></p>
+      <p class="breaker-cleared"><span data-breaker-cleared>0 / 0</span> cleared</p>
+    </footer>
+  </dialog>
+</page-breaker>
+
+<script>
+  import type { BrickBreakerScene, GameSnapshot } from "../lib/brick-breaker";
+
+  class PageBreaker extends HTMLElement {
+    private dialog!: HTMLDialogElement;
+    private scene?: BrickBreakerScene;
+    private abort?: AbortController;
+    private sequence = "";
+    private lastKeyAt = 0;
+    private tapStart?: { x: number; y: number };
+    private lastTap?: { x: number; y: number; time: number };
+    private session = 0;
+    private overflow = "";
+    private locked = false;
+    private keys = new Set<string>();
+    private best = 0;
+    private phase = "";
+    private toastTimer?: number;
+
+    connectedCallback() {
+      this.abort?.abort();
+      this.abort = new AbortController();
+      const signal = this.abort.signal;
+      this.dialog = this.querySelector("dialog")!;
+      try { this.best = Number(localStorage.getItem("page-breaker-best")) || 0; } catch { /* Storage is optional. */ }
+      this.text("[data-breaker-best]", String(this.best).padStart(4, "0"));
+      document.addEventListener("keydown", this.onKeyDown, { signal });
+      document.addEventListener("keyup", this.onKeyUp, { signal });
+      document.addEventListener("pointerdown", this.onSecretDown, { signal });
+      document.addEventListener("pointerup", this.onSecretUp, { signal });
+      window.addEventListener("blur", this.clearKeys, { signal });
+      this.dialog.addEventListener("close", this.cleanup, { signal });
+      this.querySelector("[data-breaker-close]")!.addEventListener("click", () => this.dialog.close(), { signal });
+      this.querySelector("[data-breaker-play]")!.addEventListener("click", () => this.scene?.start(), { signal });
+      this.querySelector("[data-breaker-pause]")!.addEventListener("click", () => this.scene?.togglePause(), { signal });
+      this.querySelector("[data-breaker-restart]")!.addEventListener("click", () => this.scene?.restart(), { signal });
+      this.querySelector("[data-breaker-sound]")!.addEventListener("click", this.toggleSound, { signal });
+    }
+
+    disconnectedCallback() {
+      this.abort?.abort();
+      if (this.dialog?.open) this.dialog.close();
+      this.cleanup();
+    }
+
+    private text(selector: string, value: string) {
+      const element = this.querySelector(selector)!;
+      if (element.textContent !== value) element.textContent = value;
+    }
+
+    private onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) { this.sequence = ""; return; }
+      if (event.composedPath().some(target => target instanceof HTMLElement &&
+        (target.isContentEditable || target.matches("input, textarea, select, [role='textbox']")))) { this.sequence = ""; return; }
+      if (this.dialog.open) {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          this.keys.add(event.key);
+          this.updateDirection();
+        } else if (!event.repeat && event.code === "Space" && !(event.target instanceof Element && event.target.closest("button"))) {
+          event.preventDefault(); this.scene?.start();
+        } else if (!event.repeat && event.key.toLowerCase() === "p") { event.preventDefault(); this.scene?.togglePause(); }
+        else if (!event.repeat && event.key.toLowerCase() === "m") { event.preventDefault(); this.toggleSound(); }
+        return;
+      }
+      if (event.repeat || document.querySelector("dialog[open]")) { this.sequence = ""; return; }
+      const now = performance.now();
+      this.sequence = event.key === "2" ? (now - this.lastKeyAt < 1200 ? this.sequence : "") + "2" : "";
+      this.lastKeyAt = now;
+      if (this.sequence === "22") { this.sequence = ""; void this.openGame(); }
+    };
+
+    private onKeyUp = (event: KeyboardEvent) => { this.keys.delete(event.key); this.updateDirection(); };
+    private clearKeys = () => { this.keys.clear(); this.sequence = ""; this.lastTap = undefined; this.updateDirection(); };
+    private updateDirection() { this.scene?.setDirection(Number(this.keys.has("ArrowRight")) - Number(this.keys.has("ArrowLeft"))); }
+
+    private onSecretDown = (event: PointerEvent) => {
+      this.tapStart = event.button === 0 && event.target instanceof Element && event.target.closest("[data-breaker-trigger]")
+        ? { x: event.clientX, y: event.clientY } : undefined;
+    };
+    private onSecretUp = (event: PointerEvent) => {
+      const start = this.tapStart;
+      this.tapStart = undefined;
+      if (!start || Math.hypot(start.x - event.clientX, start.y - event.clientY) > 10
+        || !(event.target instanceof Element) || !event.target.closest("[data-breaker-trigger]")) return;
+      const now = performance.now();
+      if (this.lastTap && now - this.lastTap.time < 450 && Math.hypot(event.clientX - this.lastTap.x, event.clientY - this.lastTap.y) < 35) {
+        this.lastTap = undefined;
+        if (!document.querySelector("dialog[open]")) void this.openGame();
+      } else this.lastTap = { x: event.clientX, y: event.clientY, time: now };
+    };
+
+    private async openGame() {
+      if (this.dialog.open) return;
+      const session = ++this.session;
+      this.overflow = document.body.style.overflow;
+      this.dialog.showModal();
+      document.body.style.overflow = "hidden";
+      this.locked = true;
+      this.phase = "";
+      this.querySelector<HTMLElement>("[data-breaker-panel]")!.hidden = false;
+      this.querySelector<HTMLButtonElement>("[data-breaker-play]")!.disabled = true;
+      this.text("#breaker-title", "This page is the game.");
+      this.text("#breaker-description", "Getting the page ready…");
+      try {
+        const { BrickBreakerScene } = await import("../lib/brick-breaker");
+        if (!this.dialog.open || !this.isConnected || session !== this.session) return;
+        this.scene = new BrickBreakerScene(this.querySelector("canvas")!, {
+          onState: this.renderState, onAnnounce: this.announce,
+          onBounds: ({ left, width }) => {
+            this.dialog.style.setProperty("--breaker-left", `${left}px`);
+            this.dialog.style.setProperty("--breaker-width", `${width}px`);
+          },
+        });
+        this.renderSound();
+      } catch {
+        this.text("#breaker-title", "A small intermission.");
+        this.text("#breaker-description", "The game couldn't load. Close it and try again.");
+      }
+    }
+
+    private cleanup = () => {
+      ++this.session;
+      this.scene?.destroy();
+      this.scene = undefined;
+      this.clearKeys();
+      window.clearTimeout(this.toastTimer);
+      this.querySelector<HTMLElement>("[data-breaker-toast]")!.hidden = true;
+      if (this.locked) { document.body.style.overflow = this.overflow; this.locked = false; }
+    };
+
+    private toggleSound = () => { this.scene?.toggleSound(); this.renderSound(); };
+    private renderSound() {
+      const muted = this.scene?.muted ?? false;
+      const button = this.querySelector("[data-breaker-sound]")!;
+      button.setAttribute("aria-pressed", String(!muted));
+      button.setAttribute("aria-label", `Turn sound ${muted ? "on" : "off"} (M)`);
+      this.querySelector<SVGElement>("[data-sound-waves]")!.style.display = muted ? "none" : "block";
+      this.querySelector<SVGElement>("[data-sound-muted]")!.style.display = muted ? "block" : "none";
+    }
+
+    private announce = (message: string) => {
+      const toast = this.querySelector<HTMLElement>("[data-breaker-toast]")!;
+      toast.textContent = message;
+      toast.hidden = false;
+      window.clearTimeout(this.toastTimer);
+      this.toastTimer = window.setTimeout(() => { toast.hidden = true; }, 3500);
+    };
+
+    private renderState = (state: GameSnapshot) => {
+      this.text("[data-breaker-score]", String(state.score).padStart(4, "0"));
+      if (state.score > this.best) {
+        this.best = state.score;
+        try { localStorage.setItem("page-breaker-best", String(this.best)); } catch { /* Storage is optional. */ }
+      }
+      this.text("[data-breaker-best]", String(this.best).padStart(4, "0"));
+      this.text("[data-breaker-lives]", "● ".repeat(state.lives).trim() + " ○".repeat(3 - state.lives));
+      this.querySelector("[data-breaker-lives]")!.setAttribute("aria-label", `${state.lives} lives remaining`);
+      this.text("[data-breaker-cleared]", `${state.total - state.remaining} / ${state.total}`);
+      const effects = [state.serveFor ? `Next serve ${state.serveFor}s` : "", state.balls > 1 ? `${state.balls} balls` : "", state.fireBalls ? "Fireball armed · 1 shot" : "", state.wideFor ? `Wide ${state.wideFor}s` : "", state.slowFor ? `Slow ${state.slowFor}s` : "", state.combo > 1 ? `×${Math.min(state.combo, 5)} combo` : ""].filter(Boolean);
+      this.text("[data-breaker-effects]", effects.join(" · "));
+      this.querySelector<HTMLElement>("[data-breaker-progress]")!.style.width = `${state.total ? (state.total - state.remaining) / state.total * 100 : 0}%`;
+      const pause = this.querySelector<HTMLButtonElement>("[data-breaker-pause]")!;
+      pause.disabled = state.phase !== "playing" && state.phase !== "serving" && state.phase !== "paused";
+      pause.setAttribute("aria-label", state.phase === "paused" ? "Resume (P)" : "Pause (P)");
+      this.text("[data-breaker-pause-icon]", state.phase === "paused" ? "▷" : "Ⅱ");
+      const panel = this.querySelector<HTMLElement>("[data-breaker-panel]")!;
+      panel.hidden = state.phase === "playing" || state.phase === "serving";
+      const play = this.querySelector<HTMLButtonElement>("[data-breaker-play]")!;
+      play.disabled = !state.total;
+      this.querySelector<HTMLElement>("[data-breaker-legend]")!.hidden = state.phase !== "ready" || state.score > 0;
+      if (state.phase !== this.phase || state.phase === "ready") {
+        const copy = {
+          ready: [state.score ? "Still in the game." : "This page is the game.", "Break the words. Catch the power-ups. Try to leave nothing behind.", state.score ? "Launch again" : "Play"],
+          paused: ["Take a breath.", "Your score is safe. Resume when you’re ready.", "Resume"],
+          won: ["You broke the internet.", `${state.score} points. Every piece, cleared.`, "Play again"],
+          lost: ["Good game.", `${state.score} points. The page has another round in it.`, "Try again"],
+          playing: ["Page breaker", "Break the page with your paddle and ball.", "Play"],
+          serving: ["Page breaker", "Position the paddle. Your next ball will launch in two seconds.", "Play"],
+        }[state.phase];
+        this.text("#breaker-title", state.total ? copy[0] : "Nothing to break here.");
+        this.text("#breaker-description", state.total ? copy[1] : "Return to the page and scroll to some text.");
+        this.text("[data-breaker-play-label]", copy[2]);
+        if (!panel.hidden) queueMicrotask(() => { if (this.dialog.open && !play.disabled) play.focus({ preventScroll: true }); });
+        this.phase = state.phase;
+        if (state.phase !== "playing" && state.phase !== "serving") this.keys.clear();
+      }
+    };
+  }
+
+  if (!customElements.get("page-breaker")) customElements.define("page-breaker", PageBreaker);
+</script>
+
+<style>
+  .breaker { position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; overflow: hidden; background: transparent; color: #2c2c29; font-family: "Nunito", system-ui, sans-serif; }
+  .breaker::backdrop { background: #fdfcfa0a; }
+  .breaker [hidden] { display: none !important; }
+  .breaker canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+  .breaker button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .breaker button:focus-visible { outline: 2px solid #8d8d88; outline-offset: 3px; }
+  .breaker-top { position: absolute; top: max(14px, env(safe-area-inset-top)); left: var(--breaker-left, 24px); width: var(--breaker-width, calc(100% - 48px)); display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 64px; padding: 10px 15px; border: 1px solid #e3e1dc; border-radius: 14px; background: #fdfcfaf5; box-shadow: 0 3px 18px #2c2c2905; }
+  .breaker-brand { display: flex; align-items: center; gap: 10px; color: #6b6a65; font: 10px/1.35 ui-monospace, monospace; letter-spacing: 0.08em; }
+  .breaker-badge { display: grid; place-items: center; width: 33px; height: 33px; border: 1px solid #d4d3ce; border-radius: 8px; background: linear-gradient(140deg, #f5f4f1, #deded8); color: #555650; font-family: "Nunito", sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -0.1em; padding-right: 2px; }
+  .breaker-stats { display: flex; align-items: center; gap: 30px; margin: 0; }
+  .breaker-stats dt { color: #93928a; font: 8px ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 4px; }
+  .breaker-stats dd { margin: 0; min-width: 45px; font: 15px ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .breaker-stats [data-breaker-lives] { font-size: 11px; letter-spacing: 1px; }
+  .breaker-controls { display: flex; gap: 4px; }
+  .breaker-controls button { display: grid; place-items: center; width: 35px; height: 35px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: #6d6c67; font-size: 23px; line-height: 1; }
+  .breaker-controls button:hover { background: #efeee9; color: #333; }
+  .breaker-controls button:disabled { opacity: 0.3; cursor: default; }
+  .breaker-progress { position: absolute; bottom: -1px; left: 14px; right: 14px; height: 2px; overflow: hidden; }
+  .breaker-progress i { display: block; width: 0; height: 100%; background: #7e8eb6; transition: width 150ms; }
+  .breaker-panel { position: absolute; top: 46%; left: calc(var(--breaker-left, 0px) + var(--breaker-width, 100%) / 2); transform: translate(-50%, -50%); width: min(430px, calc(var(--breaker-width, 100%) - 24px)); padding: 30px; border: 1px solid #dfddd5; border-radius: 18px; background: #fdfcfa; box-shadow: 0 15px 70px #2c2c2914, 0 1px 4px #2c2c2908; text-align: center; }
+  .breaker-eyebrow { margin: 0 0 15px; font: 8px ui-monospace, monospace; letter-spacing: 0.13em; color: #929087; }
+  .breaker-panel h2 { margin: 0 0 12px; font-size: 29px; font-weight: 700; line-height: 1.15; letter-spacing: -0.04em; }
+  #breaker-description { margin: 0 auto; max-width: 300px; color: #85837a; font-size: 13px; line-height: 1.8; }
+  .breaker-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 14px; margin: 23px -10px 0; color: #79776f; font-size: 10px; }
+  .breaker-legend > span { display: flex; align-items: center; gap: 5px; }
+  .breaker-legend b { display: grid; place-items: center; width: 21px; height: 23px; border: 1px solid currentColor; border-radius: 5px; font: 10px ui-monospace, monospace; }
+  .breaker-power-m { color: #5876c8; } .breaker-power-w { color: #9471ad; } .breaker-power-s { color: #a47a36; }
+  .breaker-power-f { color: #d77938; }
+  .breaker-play { display: flex; align-items: center; justify-content: space-between; gap: 30px; width: 100%; margin-top: 25px; padding: 12px 15px; border: 1px solid #383835; border-radius: 9px; background: #383835; color: #fdfcfa; font-size: 13px !important; font-weight: 600 !important; }
+  .breaker-play:hover { background: #555; border-color: #555; }
+  .breaker-play:disabled { opacity: 0.4; cursor: wait; }
+  .breaker-play kbd { color: #c4c3bb; font: 8px ui-monospace, monospace; letter-spacing: 0.08em; }
+  .breaker-panel-hint { margin: 14px 0 0; font-size: 10px; color: #a19e94; }
+  .breaker-bottom { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: calc(var(--breaker-left, 12px) + 12px); width: calc(var(--breaker-width, 100%) - 24px); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; font: 10px/1.5 ui-monospace, monospace; color: #7e7b73; pointer-events: none; }
+  .breaker-bottom p { margin: 0; }
+  .breaker-hint i { margin-inline: 7px; font-style: normal; color: #c7c4bb; }
+  .breaker-touch-hint { display: none; }
+  .breaker-hint { grid-row: 2; }
+  .breaker-effects { grid-column: 1 / -1; grid-row: 1; color: #6e7a9b; }
+  .breaker-cleared { grid-column: 2; grid-row: 2; white-space: nowrap; }
+  .breaker-cleared span { color: #6b6a65; }
+  .breaker-toast { position: absolute; top: 96px; left: calc(var(--breaker-left, 0px) + var(--breaker-width, 100%) / 2); transform: translateX(-50%); max-width: calc(var(--breaker-width, 100%) - 24px); width: max-content; margin: 0; padding: 8px 13px; border: 1px solid #deded6; border-radius: 30px; background: #fdfcfa; color: #6c7389; font-size: 11px; text-align: center; pointer-events: none; }
+  @media (max-width: 660px) {
+    .breaker-top { gap: 8px; padding-inline: 10px; }
+    .breaker-brand { gap: 7px; font-size: 8px; }
+    .breaker-brand > span + span { display: none; }
+    .breaker-badge { width: 27px; height: 30px; font-size: 17px; }
+    .breaker-stats { gap: 12px; }
+    .breaker-stats dd { min-width: 37px; font-size: 13px; }
+    .breaker-best { display: none; }
+    .breaker-controls { gap: 0; }
+    .breaker-controls button { width: 35px; height: 44px; }
+    .breaker-panel { padding: 26px 22px; }
+    .breaker-panel h2 { font-size: 26px; }
+    .breaker-legend { gap: 10px; font-size: 9px; }
+    .breaker-bottom { gap: 5px 12px; font-size: 9px; }
+  }
+  @media (pointer: coarse) { .breaker-keyboard-hint { display: none; } .breaker-touch-hint { display: inline; } }
+  @media (max-height: 500px) { .breaker-panel { padding: 18px 24px; top: 51%; } .breaker-eyebrow, .breaker-panel-hint, .breaker-legend { display: none; } .breaker-panel h2 { font-size: 23px; } .breaker-play { margin-top: 15px; } }
+  @media (prefers-reduced-motion: reduce) { .breaker-progress i { transition: none; } }
+</style>
