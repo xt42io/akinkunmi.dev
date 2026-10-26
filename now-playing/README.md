@@ -13,17 +13,14 @@ npm install
 npm run dev
 ```
 
-Configure these server-only variables in `.env.local` for local development and
-in the website’s runtime environment for production:
+Run `npm run db:migrate` once to initialize local D1. Configure these server-only
+secrets in `.dev.vars` locally and Cloudflare Worker secrets in production:
 
 - `NOW_PLAYING_TOKEN`: a long random bearer token required by `POST /api/now-playing`.
   Use this same token in your extension and Android client.
-- `REDIS_URL`: optional Redis connection string. Redis shares the current track
-  between server instances and preserves it across restarts. Without Redis, or
-  while Redis is unavailable, storage is local to each running server process.
-- `WEBSITE_ORIGIN`: allowed website origin; defaults to the current request’s origin.
-- `CORS_ORIGINS`: optional comma-separated allowed origins. Defaults to the website
-  origin and `https://music.youtube.com`. Include YouTube Music for the extension.
+
+`WEBSITE_ORIGIN` and `CORS_ORIGINS` are configured in `wrangler.jsonc`. The latter
+includes the website and `https://music.youtube.com` for extension requests.
 
 The API is implemented in `src/pages/api/now-playing.ts`:
 
@@ -34,12 +31,17 @@ The API is implemented in `src/pages/api/now-playing.ts`:
 
 Track payloads require nonempty `title` and `artist`, `source` set to `desktop`
 or `android`, and an ISO date-time `playedAt`. Optional fields are `album`,
-`image`, and `url`; URLs must use HTTP or HTTPS.
+`image`, and `url`. Links must use HTTP or HTTPS. Artwork also accepts base64
+JPEG, PNG, WebP, and GIF data URLs, including the Android client's JPEG artwork.
 
-Redis retains the existing `now-playing:latest` key and `EX 600` expiry. Reuse
-`NOW_PLAYING_TOKEN` and `REDIS_URL` from the previous backend when deploying the
-migration. Existing clients need the new API URL below; reload the extension and
-rebuild/reinstall the Android app after changing its configuration.
+D1 stores the latest track in a single row with a ten-minute expiry timestamp.
+Reads ignore expired tracks; each update replaces the row. No Redis service or
+process-local fallback is needed, and storage errors return HTTP 503.
+
+The Cloudflare migration generated a new token saved in ignored `.dev.vars`.
+Copy its `NOW_PLAYING_TOKEN` value into your clients. Reload the extension and
+rebuild/reinstall the Android app after changing configuration. Keep real client
+tokens out of Git.
 
 Example local request (set `NOW_PLAYING_TOKEN` in your shell first):
 
@@ -102,7 +104,7 @@ import NowPlaying from "../components/NowPlaying.astro";
 <NowPlaying />
 ```
 
-Astro reads the current track directly from the shared server store for the
+Astro reads the current track directly from D1 for the
 initial HTML. A small browser script polls `/api/now-playing` every 10 seconds.
 It displays the latest track or **Nothing playing right now**. No React hydration
 or `PUBLIC_NOW_PLAYING_API_URL` setting is needed.
@@ -120,6 +122,6 @@ npm run test:now-playing
 npm run build
 ```
 
-Tests cover API authentication, validation, CORS, expiry, Redis failures, and
+Tests cover API authentication, validation, CORS, D1 persistence and failures, expiry, and
 music-link generation. The test command uses Node’s native TypeScript support
 (Node 22.18 or newer).
