@@ -1,8 +1,7 @@
 /// <reference path="../.astro/types.d.ts" />
 
-interface ImportMetaEnv {
-  readonly NOW_PLAYING_TOKEN?: string;
-  readonly REDIS_URL?: string;
-  readonly WEBSITE_ORIGIN?: string;
-  readonly CORS_ORIGINS?: string;
+type CloudflareRuntime = import("@astrojs/cloudflare").Runtime<import("./lib/cloudflare").CloudflareEnv>;
+
+declare namespace App {
+  interface Locals extends CloudflareRuntime {}
 }
