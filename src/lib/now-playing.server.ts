@@ -1,52 +1,20 @@
-import Redis from "ioredis";
-import { createTrackStore } from "./now-playing-store.ts";
-import type { Track } from "./now-playing.ts";
+import type { D1Database } from "@cloudflare/workers-types";
+import { parseTrack, type Track } from "./now-playing.ts";
 
-declare global {
-  // Share state between the API, SSR, and local hot reloads.
-  var __akinkunmiNowPlaying: {
-    redisUrl: string | undefined;
-    redis?: Redis;
-    store: ReturnType<typeof createTrackStore>;
-  } | undefined;
+export const TRACK_TTL_SECONDS = 600;
+
+export async function getCurrentTrack(db: D1Database, now = Date.now()): Promise<Track | null> {
+  const row = await db.prepare(
+    "SELECT track_json FROM now_playing WHERE id = 1 AND expires_at_ms > ?",
+  ).bind(now).first<{ track_json: string }>();
+  return row ? parseTrack(JSON.parse(row.track_json)) : null;
 }
 
-function getStore() {
-  const redisUrl = process.env.REDIS_URL ?? import.meta.env?.REDIS_URL;
-  if (globalThis.__akinkunmiNowPlaying && globalThis.__akinkunmiNowPlaying.redisUrl === redisUrl) {
-    return globalThis.__akinkunmiNowPlaying.store;
-  }
-
-  globalThis.__akinkunmiNowPlaying?.redis?.disconnect();
-  const redis = redisUrl ? new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    connectTimeout: 1000,
-    commandTimeout: 1500,
-    retryStrategy: () => null,
-  }) : undefined;
-  // Failed operations use the bounded, in-memory fallback in the store.
-  redis?.on("error", () => {});
-  const cache = redis ? {
-    async get(key: string) {
-      if (redis.status === "end") await redis.connect();
-      return redis.get(key);
-    },
-    async set(key: string, value: string, mode: "EX", seconds: number) {
-      if (redis.status === "end") await redis.connect();
-      return redis.set(key, value, mode, seconds);
-    },
-  } : undefined;
-
-  const store = createTrackStore(cache);
-  globalThis.__akinkunmiNowPlaying = { redisUrl, redis, store };
-  return store;
-}
-
-export function getCurrentTrack(): Promise<Track | null> {
-  return getStore().get();
-}
-
-export function saveCurrentTrack(track: Track): Promise<void> {
-  return getStore().save(track);
+export async function saveCurrentTrack(db: D1Database, track: Track, now = Date.now()): Promise<void> {
+  await db.prepare(`
+    INSERT INTO now_playing (id, track_json, expires_at_ms) VALUES (1, ?, ?)
+    ON CONFLICT (id) DO UPDATE SET
+      track_json = excluded.track_json,
+      expires_at_ms = excluded.expires_at_ms
+  `).bind(JSON.stringify(track), now + TRACK_TTL_SECONDS * 1000).run();
 }
