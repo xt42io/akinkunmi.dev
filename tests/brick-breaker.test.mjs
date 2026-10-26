@@ -13,26 +13,55 @@ function shortcut() {
   let RegisteredElement;
   let now = 100;
   let otherDialog = false;
-  let opens = 0;
+  const triggers = [];
+  const timers = new Map();
+  let nextTimer = 0;
   class Element {
     constructor(editable = false) { this.editable = editable; }
-    matches() { return this.editable; }
-    closest() { return this.trigger ? this : null; }
+    matches(selector) { return selector === ".site-shell" ? this.shell : this.editable; }
+    closest(selector) {
+      if (selector === "[data-breaker-trigger]") return this.trigger ? this : null;
+      return this.interactive || this.editable ? this : null;
+    }
   }
+  const body = new Element();
+  const document = {
+    body, documentElement: new Element(), hidden: false,
+    querySelector: selector => selector === "main"
+      ? { getBoundingClientRect: () => ({ left: 200, right: 600 }) } : otherDialog,
+  };
+  const advance = ms => {
+    const until = now + ms;
+    while (true) {
+      const next = [...timers.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (!next || next[1].at > until) break;
+      now = next[1].at; timers.delete(next[0]); next[1].callback();
+    }
+    now = until;
+  };
   runInNewContext(script, {
     HTMLElement: Element, Element,
-    document: { querySelector: () => otherDialog },
+    document,
+    window: {
+      setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, at: now + delay }); return id; },
+      clearTimeout(id) { timers.delete(id); },
+    },
     performance: { now: () => now },
     customElements: { get() {}, define(_name, element) { RegisteredElement = element; } },
   });
   const element = new RegisteredElement();
   element.dialog = { open: false };
-  element.openGame = async () => { opens++; };
+  element.openGame = async trigger => { triggers.push(trigger); };
+  const pointer = extra => ({ button: 0, pointerId: 1, isPrimary: true, target: body, clientX: 100, clientY: 200, ...extra });
   return {
-    element, Element, get opens() { return opens; },
-    advance(ms) { now += ms; },
+    element, Element, document, triggers, get opens() { return triggers.length; },
+    advance,
     otherDialog() { otherDialog = true; },
     key(key, extra = {}) { element.onKeyDown({ key, composedPath: () => [], ...extra }); },
+    down(extra) { element.onSecretDown(pointer(extra)); },
+    move(extra) { element.onSecretMove(pointer(extra)); },
+    up(extra) { element.onSecretUp(pointer(extra)); },
+    tap(extra) { this.down(extra); advance(40); this.up(extra); advance(80); },
   };
 }
 
@@ -66,6 +95,86 @@ test("the mobile double-tap shortcut ignores scrolling gestures", () => {
   client.element.onSecretDown(event); client.element.onSecretUp({ ...event, clientY: 240 });
   client.advance(100); client.element.onSecretDown(event); client.element.onSecretUp(event); assert.equal(client.opens, 0);
   client.advance(150); client.element.onSecretDown(event); client.element.onSecretUp(event); assert.equal(client.opens, 1);
+  assert.deepEqual(client.triggers, ["double_tap"]);
+});
+
+test("22 taps in either empty margin unlock the game, and 21 do not", () => {
+  const client = shortcut();
+  for (let i = 0; i < 21; i++) client.tap({ clientX: i % 2 ? 700 : 100 });
+  assert.equal(client.opens, 0);
+  client.tap(); assert.deepEqual(client.triggers, ["side_taps"]);
+  client.advance(22_000); assert.equal(client.opens, 1); // Released tap timers cannot fire later.
+});
+
+test("the empty-margin tap sequence resets after an idle gap, a content tap, or a drag", () => {
+  for (const interrupt of [
+    client => client.advance(3001),
+    client => client.tap({ clientX: 400 }),
+    client => { client.down(); client.move({ clientY: 230 }); client.up(); },
+    client => client.element.resetSecretGestures(), // Scroll / pointercancel / resize.
+    client => client.element.clearKeys(), // Window blur / hidden tab.
+  ]) {
+    const client = shortcut();
+    for (let i = 0; i < 21; i++) client.tap();
+    interrupt(client); client.tap(); assert.equal(client.opens, 0);
+    for (let i = 0; i < 21; i++) client.tap();
+    assert.deepEqual(client.triggers, ["side_taps"]);
+  }
+});
+
+test("blank sides and existing secret targets unlock only after a full 22-second hold", () => {
+  for (const useName of [false, true]) {
+    const client = shortcut();
+    const target = new client.Element(); target.trigger = true;
+    client.down(useName ? { target, clientX: 400 } : {});
+    client.advance(21_999); assert.equal(client.opens, 0);
+    client.advance(1); assert.deepEqual(client.triggers, ["long_press"]);
+    client.advance(44_000); client.up(); assert.equal(client.opens, 1);
+  }
+});
+
+test("release, movement, cancellation, multitouch, and blur cancel pending holds", () => {
+  for (const interrupt of [
+    client => client.up(),
+    client => client.move({ clientX: 120 }),
+    client => { client.move({ clientX: 400 }); client.move(); },
+    client => client.element.resetSecretGestures(),
+    client => client.down({ pointerId: 2, isPrimary: false }),
+    client => client.element.clearKeys(),
+  ]) {
+    const client = shortcut(); client.down(); client.advance(10_000); interrupt(client);
+    client.advance(22_000); assert.equal(client.opens, 0);
+  }
+  const wrongPointer = shortcut(); wrongPointer.down(); wrongPointer.up({ pointerId: 2 });
+  wrongPointer.advance(22_000); assert.equal(wrongPointer.opens, 1);
+});
+
+test("content, controls, secondary pointers, and open dialogs cannot unlock by hold or repeated tap", () => {
+  for (const blocked of [
+    () => ({ clientX: 400 }),
+    () => ({ button: 2 }),
+    () => ({ isPrimary: false }),
+    () => ({ defaultPrevented: true }),
+    client => { const target = new client.Element(); target.interactive = true; return { target }; },
+    client => { const target = new client.Element(true); return { target }; },
+    client => { const target = new client.Element(); return { target }; },
+    client => { client.otherDialog(); return {}; },
+  ]) {
+    const client = shortcut(); const event = blocked(client);
+    for (let i = 0; i < 22; i++) client.tap(event);
+    client.down(event); client.advance(22_000); assert.equal(client.opens, 0);
+  }
+  const hidden = shortcut(); hidden.down(); hidden.document.hidden = true;
+  hidden.advance(22_000); assert.equal(hidden.opens, 0);
+  const modal = shortcut(); modal.down(); modal.otherDialog(); modal.advance(22_000); assert.equal(modal.opens, 0);
+});
+
+test("long releases do not count as taps; moving within tolerance still allows a hold", () => {
+  const client = shortcut();
+  for (let i = 0; i < 21; i++) client.tap();
+  client.down(); client.advance(1000); client.up(); client.tap(); assert.equal(client.opens, 0);
+  const steady = shortcut(); steady.down(); steady.move({ clientX: 106, clientY: 203 });
+  steady.advance(22_000); assert.deepEqual(steady.triggers, ["long_press"]);
 });
 
 const bricks = [
