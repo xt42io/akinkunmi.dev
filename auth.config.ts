@@ -11,6 +11,7 @@ export function createAuthConfig(env: CloudflareEnv): AuthConfig {
     providers: [GitHub({
       clientId: env.GITHUB_CLIENT_ID,
       clientSecret: env.GITHUB_CLIENT_SECRET,
+      issuer: "https://github.com/login/oauth",
       profile(profile) {
         return {
           id: String(profile.id),
