@@ -6,32 +6,35 @@
     "dev": "astro dev --host",
     "start": "astro dev",
     "build": "astro check && astro build",
-    "preview": "astro preview",
+    "preview": "wrangler dev",
     "astro": "astro",
-    "api": "nodemon api/backend.js",
     "test:now-playing": "node --test tests/now-playing.test.mjs",
     "money:build": "node scripts/build-money-db.mjs",
-    "db:migrate": "node scripts/migrate-convex-to-postgres.mjs"
+    "db:migrate": "wrangler d1 migrations apply DB --local",
+    "deploy": "npm run build && wrangler deploy",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:import-postgres": "node scripts/migrate-postgres-to-d1.mjs",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",
-    "@astrojs/node": "9.4.4",
+    "@astrojs/cloudflare": "^12.6.13",
     "@astrojs/react": "^4.3.0",
     "@astrojs/tailwind": "^6.0.2",
     "@auth/core": "^0.37.4",
     "astro": "^5.13.3",
     "auth-astro": "^4.2.0",
     "dotenv": "^17.2.3",
-    "ioredis": "^5.11.1",
     "lucide-react": "^0.541.0",
     "motion": "^12.38.0",
     "perfect-freehand": "^1.2.3",
-    "postgres": "3.4.9",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4"
   },
   "devDependencies": {
-    "nodemon": "^3.1.11",
-    "read-excel-file": "^9.3.4"
+    "@cloudflare/workers-types": "^5.20261025.1",
+    "postgres": "^3.4.9",
+    "read-excel-file": "^9.3.4",
+    "wrangler": "^4.152.0"
   }
 }
