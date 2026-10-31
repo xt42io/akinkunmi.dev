@@ -24,28 +24,32 @@ class PageBricks {
   constructor(left: number, right: number, height: number) {
     const root = document.querySelector(".site-shell");
     if (!root) return;
+    const bottom = height - 135;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const texts: Text[] = [];
     let node: Node | null;
     while ((node = walker.nextNode())) {
       const parent = node.parentElement;
-      if (!parent || !node.textContent?.trim() || parent.closest("script, style, svg, button, input, textarea, select, dialog, [contenteditable], [aria-hidden='true'], [data-breaker-ignore]")) continue;
+      if (!parent || !node.textContent?.trim() || parent.closest("script, style, svg, button, input, textarea, select, dialog, [contenteditable], [hidden], [data-breaker-ignore]")) continue;
       const rect = parent.getBoundingClientRect();
-      if (rect.bottom < 95 || rect.top > height - 140 || !rect.width || !rect.height) continue;
+      if (rect.bottom < 100 || rect.top > bottom || !rect.width || !rect.height) continue;
       if (getComputedStyle(parent).visibility === "hidden") continue;
       texts.push(node as Text);
     }
     let id = 0;
     const add = (element: HTMLElement | SVGElement) => {
       const rect = element.getBoundingClientRect();
-      if (this.bricks.length >= 180 || rect.width < 3 || rect.height < 5 || rect.left < left + 2
-        || rect.right > right - 2 || rect.top < 100 || rect.bottom > height - 140) return;
+      const style = getComputedStyle(element);
+      if (element.closest("dialog, [hidden], [contenteditable], [data-breaker-ignore]") || style.visibility !== "visible" || style.opacity === "0") return;
+      const x = Math.max(left, rect.left - 2), y = Math.max(100, rect.top - 1);
+      const width = Math.min(right, rect.right + 2) - x, pieceHeight = Math.min(bottom, rect.bottom + 1) - y;
+      if (rect.width < 3 || rect.height < 5 || width < 3 || pieceHeight < 5) return;
       const key = id++;
       this.pieces.set(key, {
         element, visibility: element.style.getPropertyValue("visibility"),
-        priority: element.style.getPropertyPriority("visibility"), color: getComputedStyle(element).color,
+        priority: element.style.getPropertyPriority("visibility"), color: style.color,
       });
-      this.bricks.push({ id: key, x: rect.left - 2, y: rect.top - 1, width: rect.width + 4, height: rect.height + 2, alive: true });
+      this.bricks.push({ id: key, x, y, width, height: pieceHeight, alive: true });
     };
     for (const text of texts) {
       const wrapper = document.createElement("span");
@@ -62,7 +66,11 @@ class PageBricks {
       this.originals.push({ wrapper, text });
       for (const piece of wrapper.children) add(piece as HTMLElement);
     }
-    for (const image of root.querySelectorAll<HTMLElement | SVGElement>("main img:not([hidden]), .creator-link__logo, .project-link__arrow")) add(image);
+    // Controls and graphics are single bricks, including decorative aria-hidden icons.
+    // Keeping a live control intact means its own text updates cannot resurrect a broken brick.
+    for (const element of root.querySelectorAll<HTMLElement | SVGElement>("button, svg, img, canvas")) {
+      if (!element.parentElement?.closest("button, svg, img, canvas")) add(element);
+    }
   }
 
   break(id: number) { this.pieces.get(id)?.element.style.setProperty("visibility", "hidden"); }
@@ -161,6 +169,7 @@ export class BrickBreakerScene {
   private reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private canvas: HTMLCanvasElement;
   private options: Options;
+  private theme: { paper: string; ink: string; faint: string };
 
   constructor(canvas: HTMLCanvasElement, options: Options) {
     this.canvas = canvas;
@@ -168,6 +177,12 @@ export class BrickBreakerScene {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Canvas is unavailable");
     this.context = context;
+    const style = getComputedStyle(canvas);
+    this.theme = {
+      paper: style.getPropertyValue("--color-paper").trim(),
+      ink: style.getPropertyValue("--color-ink").trim(),
+      faint: style.getPropertyValue("--color-faint").trim(),
+    };
     this.resize();
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(canvas);
@@ -352,18 +367,18 @@ export class BrickBreakerScene {
     c.clearRect(0, 0, this.width, this.height);
     // Quiet, solid lanes keep the controls and paddle clear of page content.
     const top = c.createLinearGradient(0, 0, 0, 100);
-    top.addColorStop(0, "#fdfcfa"); top.addColorStop(0.78, "#fdfcfa"); top.addColorStop(1, "#fdfcfa00");
+    top.addColorStop(0, `rgb(${this.theme.paper})`); top.addColorStop(0.78, `rgb(${this.theme.paper})`); top.addColorStop(1, `rgb(${this.theme.paper} / 0)`);
     c.fillStyle = top; c.fillRect(p.left, 0, fieldWidth, 100);
     const floor = c.createLinearGradient(0, this.height - 135, 0, this.height - 100);
-    floor.addColorStop(0, "#fdfcfa00"); floor.addColorStop(1, "#fdfcfa");
+    floor.addColorStop(0, `rgb(${this.theme.paper} / 0)`); floor.addColorStop(1, `rgb(${this.theme.paper})`);
     c.fillStyle = floor; c.fillRect(p.left, this.height - 135, fieldWidth, 135);
-    c.strokeStyle = "#2c2c2910"; c.lineWidth = 1;
+    c.strokeStyle = `rgb(${this.theme.ink} / 0.06)`; c.lineWidth = 1;
     c.beginPath(); c.moveTo(p.left, 88); c.lineTo(p.left, this.height - 45); c.moveTo(p.right, 88); c.lineTo(p.right, this.height - 45); c.stroke();
     c.save();
     c.beginPath(); c.rect(p.left, p.top, fieldWidth, this.height - p.top - 35); c.clip();
     for (const brick of p.bricks) {
       if (!brick.alive) continue;
-      c.strokeStyle = "#2c2c2924";
+      c.strokeStyle = `rgb(${this.theme.ink} / 0.14)`;
       c.beginPath(); c.roundRect(brick.x, brick.y, brick.width, brick.height, 3); c.stroke();
     }
     for (const particle of this.particles) {
@@ -383,13 +398,13 @@ export class BrickBreakerScene {
       c.beginPath(); c.arc(blast.x, blast.y, radius, 0, Math.PI * 2); c.stroke();
     }
     for (const drop of p.drops) {
-      const colors: Record<Power, string> = { multiball: "#5876c8", wide: "#9471ad", slow: "#a47a36", fire: "#d77938" };
-      c.fillStyle = "#fdfcfa"; c.strokeStyle = colors[drop.kind]; c.lineWidth = 1.5;
+      const colors: Record<Power, string> = { multiball: "#91a9ee", wide: "#b69bd4", slow: "#d6b06c", fire: "#edaa72" };
+      c.fillStyle = `rgb(${this.theme.paper})`; c.strokeStyle = colors[drop.kind]; c.lineWidth = 1.5;
       c.beginPath(); c.roundRect(drop.x - 13, drop.y - 13, 26, 26, 7); c.fill(); c.stroke();
       c.fillStyle = colors[drop.kind]; c.font = "700 11px ui-monospace, monospace"; c.textAlign = "center";
       c.fillText({ multiball: "M", wide: "W", slow: "S", fire: "F" }[drop.kind], drop.x, drop.y + 4);
     }
-    c.fillStyle = p.wideFor ? "#6c60a1" : "#383835";
+    c.fillStyle = p.wideFor ? "#b69bd4" : `rgb(${this.theme.ink})`;
     c.beginPath(); c.roundRect(p.paddle.x, p.paddle.y, p.paddle.width, p.paddle.height, 5); c.fill();
     c.fillStyle = "#ffffff70"; c.fillRect(p.paddle.x + 7, p.paddle.y + 2, p.paddle.width - 14, 1);
     const living = new Set(p.balls.map(ball => ball.id));
@@ -400,7 +415,7 @@ export class BrickBreakerScene {
       if (p.phase === "playing" && !this.reducedMotion.matches) {
         trail.push({ x: ball.x, y: ball.y }); if (trail.length > 10) trail.shift();
         trail.forEach((point, i) => {
-          c.fillStyle = ball.fire ? `rgba(223,114,47,${i / trail!.length * 0.35})` : `rgba(75,105,179,${i / trail!.length * 0.18})`;
+          c.fillStyle = ball.fire ? `rgba(223,114,47,${i / trail!.length * 0.35})` : `rgba(145,169,238,${i / trail!.length * 0.18})`;
           c.beginPath(); c.arc(point.x, point.y, ball.radius * i / trail!.length, 0, Math.PI * 2); c.fill();
         });
       }
@@ -409,13 +424,13 @@ export class BrickBreakerScene {
         glow.addColorStop(0, "#f6aa5399"); glow.addColorStop(1, "#ed813000");
         c.fillStyle = glow; c.beginPath(); c.arc(ball.x, ball.y, 16, 0, Math.PI * 2); c.fill();
       }
-      c.fillStyle = ball.fire ? "#e78835" : "#4b69b3";
+      c.fillStyle = ball.fire ? "#edaa72" : "#91a9ee";
       c.beginPath(); c.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2); c.fill();
       c.fillStyle = "#ffffffb0"; c.beginPath(); c.arc(ball.x - 1, ball.y - 1.5, 1.5, 0, Math.PI * 2); c.fill();
     }
     if (p.phase === "ready" || p.phase === "serving") {
       const center = p.paddle.x + p.paddle.width / 2;
-      c.fillStyle = "#8a8981"; c.textAlign = "center"; c.font = "10px ui-monospace, monospace";
+      c.fillStyle = `rgb(${this.theme.faint})`; c.textAlign = "center"; c.font = "10px ui-monospace, monospace";
       c.fillText(p.phase === "serving" ? `BACK IN ${Math.ceil(p.serveFor)} · SPACE / TAP TO SERVE` : "SPACE / TAP TO LAUNCH", (p.left + p.right) / 2, p.paddle.y - 34);
       if (p.phase === "serving") {
         c.strokeStyle = "#7285b2"; c.lineWidth = 1.5;
