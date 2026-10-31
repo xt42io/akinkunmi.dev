@@ -165,7 +165,7 @@ export default function Guestbook() {
             }}>Try again <ArrowUpRight size={13} aria-hidden="true" /></button>
           </div>
         ) : entries === null ? (
-          <div className="guestbook-grid">
+          <div className="guestbook-list">
             <p className="sr-only" role="status">Loading the guestbook…</p>
             {[0, 1, 2, 3].map(index => <div key={index} className="guestbook-placeholder" aria-hidden="true"><span /><span /><span /></div>)}
           </div>
@@ -176,7 +176,7 @@ export default function Guestbook() {
             <span>Your note could be the start of something nice.</span>
           </div>
         ) : (
-          <div className="guestbook-grid">
+          <div className="guestbook-list">
             {entries.map(entry => (
               <article key={entry._id} className="guestbook-entry">
                 <header className="guestbook-entry-author">
@@ -187,11 +187,11 @@ export default function Guestbook() {
                   <div>
                     <h3>{entry.authorName}</h3>
                   </div>
+                  <time dateTime={new Date(entry.createdAt).toISOString()}>{formatDate(entry.createdAt)}</time>
                 </header>
                 <blockquote>{entry.message}</blockquote>
                 <div className="guestbook-entry-bottom">
                   {entry.signature ? <img src={entry.signature} alt={`${entry.authorName}’s signature`} className="guestbook-signature" loading="lazy" /> : null}
-                  <time dateTime={new Date(entry.createdAt).toISOString()}>{formatDate(entry.createdAt)}</time>
                 </div>
               </article>
             ))}
