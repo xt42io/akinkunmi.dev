@@ -4,12 +4,6 @@ export interface Project {
   url: string;
 }
 
-const outray: Project = {
-  title: "OutRay",
-  description: "Open-source ngrok alternative.",
-  url: "https://outray.dev",
-};
-
 const byteship: Project = {
   title: "Byteship",
   description: "File uploads, storage and delivery.",
@@ -41,7 +35,6 @@ const envii: Project = {
 };
 
 export const featuredProjects: Project[] = [
-  outray,
   byteship,
   avnac,
   betterSecrets,
@@ -51,7 +44,6 @@ export const featuredProjects: Project[] = [
 
 // Prefer accessible GitHub About websites. Only public repos can be fallbacks.
 export const projects: Project[] = [
-  outray,
   byteship,
   {
     title: "Aeroplane",
