@@ -79,7 +79,7 @@ export const SignaturePad = ({
 
         if (ctx) {
           ctx.restore();
-          ctx.fillStyle = "#2c2c29";
+          ctx.fillStyle = getComputedStyle($el.current).color;
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = "high";
 
@@ -127,7 +127,7 @@ export const SignaturePad = ({
 
       if (ctx) {
         ctx.restore();
-        ctx.fillStyle = "#2c2c29";
+        ctx.fillStyle = getComputedStyle($el.current).color;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
 
@@ -191,7 +191,7 @@ export const SignaturePad = ({
       ctx?.clearRect(0, 0, width, height);
 
       if (ctx) {
-        ctx.fillStyle = "#2c2c29";
+        ctx.fillStyle = getComputedStyle($el.current).color;
       }
 
       newLines.forEach((line) => {
