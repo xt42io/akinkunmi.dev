@@ -93,6 +93,10 @@ a life only when no balls remain; a two-second countdown on the paddle serves
 the next ball automatically. Keep moving, or press Space/tap to serve early.
 Paddle contact angle and movement affect the bounce.
 Physics uses fixed time steps, and the canvas/audio code loads only on first use.
+Visible words, buttons, SVG icons, images, and canvases inside the playfield are
+breakable. Buttons are one piece, including live Now Playing controls, so a
+metadata refresh cannot bring back a destroyed brick. Hidden elements and dialog
+contents are excluded; there is no fixed limit on the number of visible pieces.
 Sound is synthesized locally after Play; no assets or services are needed. The
 game pauses in hidden tabs, reduced-motion disables particles and trails, and
 closing restores the original text nodes and styles without navigation. Resizing
